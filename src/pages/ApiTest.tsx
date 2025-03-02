@@ -4,16 +4,20 @@ import { useIntegrationStore } from '../store/integrationStore';
 import { googleApiService } from '../services/api';
 import { Send, Youtube, AlertCircle, Check, Loader, Zap, Mail, Calendar, HardDrive, Instagram, Facebook, Linkedin, Twitter, Pin } from 'lucide-react';
 
+interface ApiResponse {
+  [key: string]: unknown;
+}
+
 const ApiTest: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { integrations, credentials, fetchIntegrations, fetchCredentials } = useIntegrationStore();
+  const { integrations, userIntegrations, fetchIntegrations, fetchUserIntegrations } = useIntegrationStore();
   
-  const [selectedCredential, setSelectedCredential] = useState<string>('');
+  const [selectedUserIntegration, setSelectedUserIntegration] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [apiResponse, setApiResponse] = useState<any>(null);
+  const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
   
   // Gmail test form
   const [emailTo, setEmailTo] = useState<string>('');
@@ -30,11 +34,11 @@ const ApiTest: React.FC = () => {
   
   useEffect(() => {
     fetchIntegrations();
-    fetchCredentials();
-  }, [fetchIntegrations, fetchCredentials]);
+    fetchUserIntegrations();
+  }, [fetchIntegrations, fetchUserIntegrations]);
   
   const integration = integrations.find(i => i.id === id);
-  const integrationCredentials = credentials.filter(c => c.integration_id === id);
+  const integrationConnections = userIntegrations.filter(ui => ui.integration_id === id);
   
   if (!integration) {
     return (
@@ -55,8 +59,8 @@ const ApiTest: React.FC = () => {
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedCredential) {
-      setError('Please select a credential');
+    if (!selectedUserIntegration) {
+      setError('Please select a connection');
       return;
     }
     
@@ -71,7 +75,7 @@ const ApiTest: React.FC = () => {
     setApiResponse(null);
     
     try {
-      const response = await googleApiService.sendEmail(selectedCredential, {
+      const response = await googleApiService.sendEmail(selectedUserIntegration, {
         to: emailTo,
         subject: emailSubject,
         body: emailBody,
@@ -79,9 +83,10 @@ const ApiTest: React.FC = () => {
       });
       
       setSuccess('Email sent successfully!');
-      setApiResponse(response);
-    } catch (err: any) {
-      setError(err.message || 'Failed to send email');
+      setApiResponse(response as ApiResponse);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send email';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -90,8 +95,8 @@ const ApiTest: React.FC = () => {
   const handleListYouTubeVideos = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedCredential) {
-      setError('Please select a credential');
+    if (!selectedUserIntegration) {
+      setError('Please select a connection');
       return;
     }
     
@@ -101,16 +106,17 @@ const ApiTest: React.FC = () => {
     setApiResponse(null);
     
     try {
-      const response = await googleApiService.listYouTubeVideos(selectedCredential, {
+      const response = await googleApiService.listYouTubeVideos(selectedUserIntegration, {
         channelId: channelId || undefined,
         maxResults,
         order: 'date'
       });
       
       setSuccess('Videos retrieved successfully!');
-      setApiResponse(response);
-    } catch (err: any) {
-      setError(err.message || 'Failed to retrieve videos');
+      setApiResponse(response as ApiResponse);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to retrieve videos';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -119,8 +125,8 @@ const ApiTest: React.FC = () => {
   const handleSocialMediaPost = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedCredential) {
-      setError('Please select a credential');
+    if (!selectedUserIntegration) {
+      setError('Please select a connection');
       return;
     }
     
@@ -136,7 +142,7 @@ const ApiTest: React.FC = () => {
     
     try {
       // Simulate API response for social media post
-      const response = {
+      const response: ApiResponse = {
         id: `post_${Math.random().toString(36).substring(2, 15)}`,
         text: postText,
         url: postUrl || null,
@@ -149,8 +155,9 @@ const ApiTest: React.FC = () => {
       
       setSuccess('Post created successfully!');
       setApiResponse(response);
-    } catch (err: any) {
-      setError(err.message || 'Failed to create post');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create post';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -390,7 +397,7 @@ const ApiTest: React.FC = () => {
                 Test {integration.name} API
               </h1>
               <p className="mt-1 text-sm text-gray-400">
-                Test your integration with the {integration.name} API
+                Send test requests to the {integration.name} API
               </p>
             </div>
           </div>
@@ -406,54 +413,74 @@ const ApiTest: React.FC = () => {
                   API Test Console
                 </h3>
                 <p className="mt-1 max-w-2xl text-sm text-gray-400">
-                  Select a credential and test the {integration.name} API integration
+                  Select a connection and test the API functionality.
                 </p>
               </div>
               
-              <div className="border-t border-dark-600 px-4 py-5 sm:p-6">
-                {integrationCredentials.length > 0 ? (
+              <div className="border-t border-dark-600 px-4 py-5 sm:px-6">
+                {integrationConnections.length > 0 ? (
                   <div className="space-y-6">
                     <div>
                       <label htmlFor="credential" className="block text-sm font-medium text-gray-300">
-                        Select Credential
+                        Select Connection
                       </label>
                       <select
                         id="credential"
                         className="mt-1 block w-full border border-dark-500 rounded-md shadow-sm py-2 px-3 bg-dark-600 text-white focus:outline-none focus:ring-glow-purple focus:border-glow-purple sm:text-sm"
-                        value={selectedCredential}
-                        onChange={(e) => setSelectedCredential(e.target.value)}
-                        required
+                        value={selectedUserIntegration}
+                        onChange={(e) => setSelectedUserIntegration(e.target.value)}
                       >
-                        <option value="">Select a credential</option>
-                        {integrationCredentials.map((cred) => (
-                          <option key={cred.id} value={cred.id}>
-                            {cred.name}
+                        <option value="">Select a connection</option>
+                        {integrationConnections.map((userIntegration) => (
+                          <option key={userIntegration.id} value={userIntegration.id}>
+                            {userIntegration.name}
                           </option>
                         ))}
                       </select>
                     </div>
                     
                     {error && (
-                      <div className="bg-red-900/30 p-4 rounded-lg border border-red-500 flex items-center">
-                        <AlertCircle className="h-5 w-5 text-red-400 mr-3" />
-                        <p className="text-red-300">{error}</p>
+                      <div className="rounded-md bg-red-900/30 p-4 border border-red-700">
+                        <div className="flex">
+                          <div className="flex-shrink-0">
+                            <AlertCircle className="h-5 w-5 text-red-400" aria-hidden="true" />
+                          </div>
+                          <div className="ml-3">
+                            <h3 className="text-sm font-medium text-red-400">Error</h3>
+                            <div className="mt-2 text-sm text-red-300">
+                              <p>{error}</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                     
                     {success && (
-                      <div className="bg-green-900/30 p-4 rounded-lg border border-green-500 flex items-center">
-                        <Check className="h-5 w-5 text-green-400 mr-3" />
-                        <p className="text-green-300">{success}</p>
+                      <div className="rounded-md bg-green-900/30 p-4 border border-green-700">
+                        <div className="flex">
+                          <div className="flex-shrink-0">
+                            <Check className="h-5 w-5 text-green-400" aria-hidden="true" />
+                          </div>
+                          <div className="ml-3">
+                            <h3 className="text-sm font-medium text-green-400">Success</h3>
+                            <div className="mt-2 text-sm text-green-300">
+                              <p>{success}</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                     
-                    {renderTestForm()}
+                    <div className="border-t border-dark-600 pt-4">
+                      <h4 className="text-md font-medium text-white mb-4">Test Request</h4>
+                      {renderTestForm()}
+                    </div>
                     
                     {apiResponse && (
-                      <div className="mt-6">
-                        <h4 className="text-md font-medium text-white mb-2">API Response:</h4>
-                        <div className="bg-dark-700 p-4 rounded-lg border border-dark-500 overflow-auto max-h-96">
-                          <pre className="text-gray-300 text-sm">
+                      <div className="border-t border-dark-600 pt-4">
+                        <h4 className="text-md font-medium text-white mb-4">API Response</h4>
+                        <div className="bg-dark-700 rounded-md p-4 overflow-auto max-h-96">
+                          <pre className="text-sm text-gray-300 whitespace-pre-wrap">
                             {JSON.stringify(apiResponse, null, 2)}
                           </pre>
                         </div>
@@ -461,15 +488,17 @@ const ApiTest: React.FC = () => {
                     )}
                   </div>
                 ) : (
-                  <div className="text-center py-8">
-                    <p className="text-gray-400">
-                      You haven't added any credentials for this integration yet.
+                  <div className="text-center py-6">
+                    <Zap className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-white">No connections available</h3>
+                    <p className="mt-2 text-sm text-gray-400">
+                      You need to connect at least one account to test the API.
                     </p>
                     <button
                       onClick={() => navigate(`/integrations/${id}`)}
-                      className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-dark-700 hover:bg-dark-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-purple transition-colors"
+                      className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-glow-purple hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-purple transition-colors"
                     >
-                      Add Credentials
+                      Connect an Account
                     </button>
                   </div>
                 )}

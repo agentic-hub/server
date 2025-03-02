@@ -219,9 +219,9 @@ function configureOAuth2Strategy(provider, options) {
 }
 
 // Initialize OAuth routes
-app.get('/auth/init/:provider', (req, res) => {
+app.get('/auth/init/:provider', async (req, res) => {
   const { provider } = req.params;
-  const { integration_id, redirect_client, scopes } = req.query;
+  const { integration_id, redirect_client, scopes, userId, save, name } = req.query;
   
   // Parse requested scopes if provided
   const requestedScopes = scopes ? JSON.parse(decodeURIComponent(scopes)) : [];
@@ -235,6 +235,9 @@ app.get('/auth/init/:provider', (req, res) => {
     integration_id,
     redirect_client,
     requestedScopes,
+    userId,
+    save,
+    name,
     timestamp: Date.now()
   });
   
@@ -286,7 +289,39 @@ app.get('/auth/:provider', (req, res, next) => {
 });
 
 // OAuth callback routes
-app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/auth/error' }), handleOAuthCallback);
+app.get('/auth/google/callback', (req, res, next) => {
+  const { state, code } = req.query;
+  
+  // If state is provided and valid, use it
+  if (state && oauthStates.has(state)) {
+    passport.authenticate('google', { failureRedirect: '/auth/error' })(req, res, (err) => {
+      if (err) return next(err);
+      handleOAuthCallback(req, res);
+    });
+  } else if (code) {
+    // If we have a code but no valid state, we can still authenticate
+    // This handles direct access to the callback URL
+    passport.authenticate('google', { failureRedirect: '/auth/error' })(req, res, (err) => {
+      if (err) return next(err);
+      
+      // Create a temporary state for this session
+      const tempState = uuidv4();
+      oauthStates.set(tempState, {
+        provider: 'google',
+        integration_id: 'direct-access',
+        redirect_client: 'http://localhost:5173/integrations',
+        timestamp: Date.now()
+      });
+      
+      // Add the state to the request so handleOAuthCallback can use it
+      req.query.state = tempState;
+      handleOAuthCallback(req, res);
+    });
+  } else {
+    // No state or code, redirect to error
+    res.redirect('/auth/error');
+  }
+});
 
 app.get('/auth/:provider/callback', (req, res, next) => {
   const { provider } = req.params;
@@ -310,7 +345,7 @@ function handleOAuthCallback(req, res) {
     return res.redirect('http://localhost:5173/integrations?error=invalid_state');
   }
   
-  const { provider, integration_id, redirect_client, requestedScopes } = stateData;
+  const { provider, integration_id, redirect_client, requestedScopes, userId, save, name } = stateData;
   
   // Store credentials temporarily with a unique ID
   const credentialId = uuidv4();
@@ -319,6 +354,9 @@ function handleOAuthCallback(req, res) {
     integration_id,
     user: req.user,
     requestedScopes,
+    userId,
+    save,
+    name,
     timestamp: Date.now()
   };
   
@@ -327,8 +365,27 @@ function handleOAuthCallback(req, res) {
   // Clean up state
   oauthStates.delete(state);
   
-  // Redirect back to client with credential ID
-  res.redirect(`${redirect_client || 'http://localhost:5173/integrations'}/${integration_id}?credential_id=${credentialId}`);
+  // For direct access, just redirect to the integrations page with the credential ID
+  if (integration_id === 'direct-access') {
+    return res.redirect(`http://localhost:5173/integrations?credential_id=${credentialId}`);
+  }
+  
+  // Build redirect URL with all parameters
+  let redirectUrl = `${redirect_client || 'http://localhost:5173/integrations'}/${integration_id}?credential_id=${credentialId}`;
+  
+  // Add additional parameters if they exist
+  if (userId) {
+    redirectUrl += `&userId=${encodeURIComponent(userId)}`;
+  }
+  if (save) {
+    redirectUrl += `&save=${encodeURIComponent(save)}`;
+  }
+  if (name) {
+    redirectUrl += `&name=${encodeURIComponent(name)}`;
+  }
+  
+  // Redirect back to client with credential ID and additional parameters
+  res.redirect(redirectUrl);
 }
 
 // Error route
@@ -410,15 +467,40 @@ app.get('/api/credentials/:id', async (req, res) => {
   };
   
   try {
-    // Save credentials to database with encryption
-    if (req.query.save === 'true' && req.query.userId) {
-      const credentialName = req.query.name || `${formattedCredentials.provider.charAt(0).toUpperCase() + formattedCredentials.provider.slice(1)} Connection`;
-      await saveCredentialsToDatabase(
-        req.query.userId,
-        formattedCredentials.integration_id,
-        credentialName,
-        formattedCredentials
-      );
+    // Check for save parameter in both URL query and stored credentials
+    const shouldSave = req.query.save === 'true' || credentials.save === 'true';
+    const userId = req.query.userId || credentials.userId;
+    const integrationName = req.query.name || credentials.name || `${formattedCredentials.provider.charAt(0).toUpperCase() + formattedCredentials.provider.slice(1)} Connection`;
+    
+    // Save credentials to user_integrations table if requested
+    if (shouldSave && userId) {
+      // Save to user_integrations table
+      const { data, error } = await supabase.rpc('save_user_integration', {
+        p_user_id: userId,
+        p_integration_id: formattedCredentials.integration_id,
+        p_name: integrationName,
+        p_provider: formattedCredentials.provider,
+        p_access_token: formattedCredentials.access_token,
+        p_refresh_token: formattedCredentials.refresh_token,
+        p_token_type: formattedCredentials.token_type,
+        p_expires_at: formattedCredentials.expires_at ? new Date(formattedCredentials.expires_at) : null,
+        p_scopes: formattedCredentials.scopes.length > 0 ? JSON.stringify(formattedCredentials.scopes) : null,
+        p_user_data: JSON.stringify({
+          user_id: formattedCredentials.user_id,
+          user_name: formattedCredentials.user_name,
+          user_email: formattedCredentials.user_email
+        }),
+        p_metadata: null
+      });
+      
+      if (error) {
+        console.error('Error saving to user_integrations:', error);
+        // Continue to return credentials even if saving fails
+      } else {
+        console.log('Successfully saved user integration:', data);
+        // Add the saved flag to the response
+        formattedCredentials.saved = true;
+      }
     }
   } catch (error) {
     console.error('Error saving credentials:', error);
@@ -570,6 +652,126 @@ app.get('/api/provider/:provider/scopes', (req, res) => {
   }
   
   res.json(providerScopes);
+});
+
+// Remove the endpoint to create a new integration
+// Instead, add an endpoint to get user integrations
+app.get('/api/user-integrations', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+    
+    // Get user integrations from the database
+    const { data, error } = await supabase
+      .from('user_integrations')
+      .select(`
+        *,
+        integration:integration_id (
+          id,
+          name,
+          description,
+          icon,
+          category_id
+        )
+      `)
+      .eq('user_id', userId);
+    
+    if (error) {
+      console.error('Error fetching user integrations:', error);
+      return res.status(500).json({ error: 'Failed to fetch user integrations' });
+    }
+    
+    res.json(data);
+  } catch (error) {
+    console.error('Error in get user integrations endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Add an endpoint to delete a user integration
+app.delete('/api/user-integrations/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+    
+    // Delete the user integration
+    const { error } = await supabase
+      .from('user_integrations')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
+    
+    if (error) {
+      console.error('Error deleting user integration:', error);
+      return res.status(500).json({ error: 'Failed to delete user integration' });
+    }
+    
+    res.status(204).end();
+  } catch (error) {
+    console.error('Error in delete user integration endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Add an endpoint to get user credentials for the dashboard
+app.get('/api/user-credentials', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+    
+    // Get user credentials from the database
+    const { data, error } = await supabase
+      .from('user_integrations')
+      .select(`
+        id,
+        user_id,
+        integration_id,
+        name,
+        provider,
+        created_at,
+        updated_at,
+        integration:integration_id (
+          id,
+          name,
+          description,
+          icon,
+          category_id
+        )
+      `)
+      .eq('user_id', userId);
+    
+    if (error) {
+      console.error('Error fetching user credentials:', error);
+      return res.status(500).json({ error: 'Failed to fetch user credentials' });
+    }
+    
+    // Format the credentials for the client
+    const formattedCredentials = data.map(cred => ({
+      id: cred.id,
+      user_id: cred.user_id,
+      integration_id: cred.integration_id,
+      name: cred.name,
+      provider: cred.provider,
+      created_at: cred.created_at,
+      updated_at: cred.updated_at,
+      integration: cred.integration
+    }));
+    
+    res.json(formattedCredentials);
+  } catch (error) {
+    console.error('Error in get user credentials endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Helper functions

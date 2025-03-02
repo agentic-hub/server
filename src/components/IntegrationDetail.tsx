@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useIntegrationStore } from '../store/integrationStore';
-import { Plus, Zap, AlertCircle, PlayCircle, Youtube, Calendar, Mail, HardDrive, Instagram, Facebook, Linkedin, Twitter, Pin } from 'lucide-react';
-import CredentialForm from './CredentialForm';
-import CredentialItem from './CredentialItem';
-import { getOAuthCredentials, saveOAuthCredentials } from '../services/oauth';
+import { Plus, Zap, AlertCircle, PlayCircle, Youtube, Calendar, Mail, HardDrive, Instagram, Facebook, Linkedin, Twitter, Pin, Trash2 } from 'lucide-react';
+import { getOAuthCredentials } from '../services/oauth';
+import { UserIntegration } from '../types';
 
 const IntegrationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -12,22 +11,20 @@ const IntegrationDetail: React.FC = () => {
   const location = useLocation();
   const { 
     integrations, 
-    credentials, 
+    userIntegrations,
     fetchIntegrations, 
-    fetchCredentials, 
-    addCredential, 
-    removeCredential, 
+    fetchUserIntegrations,
+    removeUserIntegration,
     loading 
   } = useIntegrationStore();
 
-  const [isAddingCredential, setIsAddingCredential] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [isProcessingOAuth, setIsProcessingOAuth] = useState(false);
 
   useEffect(() => {
     fetchIntegrations();
-    fetchCredentials();
-  }, [fetchIntegrations, fetchCredentials]);
+    fetchUserIntegrations();
+  }, [fetchIntegrations, fetchUserIntegrations]);
 
   // Handle OAuth callback
   useEffect(() => {
@@ -54,19 +51,23 @@ const IntegrationDetail: React.FC = () => {
           // Get the OAuth credentials from the server
           const oauthData = await getOAuthCredentials(credentialId);
           
-          // Generate a default name for the credential
-          const integration = integrations.find(i => i.id === id);
-          const credentialName = `${integration?.name || 'OAuth'} Connection`;
+          // Check if this is a different integration
+          if (oauthData.integration_id !== id) {
+            // Refresh integrations to get the newly created one
+            await fetchIntegrations();
+            await fetchUserIntegrations();
+            
+            // Navigate to the new integration detail page
+            navigate(`/integrations/${oauthData.integration_id}?credential_id=${credentialId}`);
+            return;
+          }
           
-          // Save the credentials to the database
-          await saveOAuthCredentials(credentialName, oauthData);
-          
-          // Refresh the credentials list
-          await fetchCredentials();
+          // Refresh the user integrations list
+          await fetchUserIntegrations();
           
         } catch (error) {
           console.error('Error processing OAuth callback:', error);
-          setOauthError('Failed to save credentials. Please try again.');
+          setOauthError('Failed to save connection. Please try again.');
         } finally {
           setIsProcessingOAuth(false);
         }
@@ -74,10 +75,10 @@ const IntegrationDetail: React.FC = () => {
     };
     
     handleOAuthCallback();
-  }, [location.search, id, integrations, fetchCredentials]);
+  }, [location.search, id, navigate, fetchUserIntegrations, fetchIntegrations]);
 
   const integration = integrations.find(i => i.id === id);
-  const integrationCredentials = credentials.filter(c => c.integration_id === id);
+  const integrationConnections = userIntegrations.filter(c => c.integration_id === id);
 
   if (!integration && !loading) {
     return (
@@ -95,20 +96,16 @@ const IntegrationDetail: React.FC = () => {
     );
   }
 
-  const handleAddCredential = async (name: string, data: Record<string, string>) => {
+  const handleAddConnection = () => {
     if (!id) return;
     
-    try {
-      await addCredential({
-        integration_id: id,
-        name: name,
-        data: data
-      });
-      
-      setIsAddingCredential(false);
-    } catch (error) {
-      console.error('Error adding credential:', error);
-      throw error;
+    // Redirect to OAuth flow
+    window.location.href = `/auth/init/${integration?.name.toLowerCase()}?integration_id=${id}`;
+  };
+
+  const handleRemoveConnection = async (userIntegrationId: string) => {
+    if (window.confirm('Are you sure you want to remove this connection?')) {
+      await removeUserIntegration(userIntegrationId);
     }
   };
 
@@ -139,6 +136,48 @@ const IntegrationDetail: React.FC = () => {
     } else {
       return <Zap className="h-6 w-6 text-glow-purple" />;
     }
+  };
+
+  // Render a user integration item
+  const UserIntegrationItem = ({ userIntegration }: { userIntegration: UserIntegration }) => {
+    return (
+      <div className="px-4 py-4 sm:px-6 border-b border-dark-600 last:border-b-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <div className="flex-shrink-0 h-10 w-10 bg-dark-700 rounded-full flex items-center justify-center">
+              {renderIntegrationIcon()}
+            </div>
+            <div className="ml-4">
+              <h4 className="text-sm font-medium text-white">{userIntegration.name}</h4>
+              <div className="mt-1 flex items-center">
+                <span className="text-xs text-gray-400">
+                  Connected: {new Date(userIntegration.created_at).toLocaleDateString()}
+                </span>
+                {userIntegration.scopes && userIntegration.scopes.length > 0 && (
+                  <span className="ml-2 text-xs text-gray-400">
+                    • {userIntegration.scopes.length} scopes
+                  </span>
+                )}
+                {userIntegration.user_data?.user_email && (
+                  <span className="ml-2 text-xs text-gray-400">
+                    • {userIntegration.user_data.user_email}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex">
+            <button
+              onClick={() => handleRemoveConnection(userIntegration.id)}
+              className="ml-2 inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-red-300 hover:text-white bg-dark-700 hover:bg-red-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Remove
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -185,33 +224,21 @@ const IntegrationDetail: React.FC = () => {
               <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
                 <div>
                   <h3 className="text-lg leading-6 font-medium text-white">
-                    API Credentials
+                    Connected Accounts
                   </h3>
                   <p className="mt-1 max-w-2xl text-sm text-gray-400">
-                    Manage your API credentials for this integration.
+                    Manage your connections for this integration.
                   </p>
                 </div>
-                {!isAddingCredential && (
-                  <button
-                    onClick={() => setIsAddingCredential(true)}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-glow-purple hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-purple shadow-glow-sm hover:shadow-glow-md transition-all"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Credential
-                  </button>
-                )}
+                <button
+                  onClick={handleAddConnection}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-glow-purple hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-purple shadow-glow-sm hover:shadow-glow-md transition-all"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Connect Account
+                </button>
               </div>
               <div className="border-t border-dark-600">
-                {isAddingCredential && integration && (
-                  <div className="px-4 py-5 sm:px-6">
-                    <CredentialForm 
-                      integration={integration}
-                      onSave={handleAddCredential}
-                      onCancel={() => setIsAddingCredential(false)}
-                    />
-                  </div>
-                )}
-                
                 {loading ? (
                   <div className="px-4 py-5 sm:p-6">
                     <div className="animate-pulse space-y-4">
@@ -226,14 +253,12 @@ const IntegrationDetail: React.FC = () => {
                       ))}
                     </div>
                   </div>
-                ) : integrationCredentials.length > 0 ? (
+                ) : integrationConnections.length > 0 ? (
                   <div>
-                    {integrationCredentials.map((credential) => (
-                      <CredentialItem 
-                        key={credential.id}
-                        credential={credential}
-                        integration={integration!}
-                        onRemove={removeCredential}
+                    {integrationConnections.map((userIntegration) => (
+                      <UserIntegrationItem 
+                        key={userIntegration.id}
+                        userIntegration={userIntegration}
                       />
                     ))}
                     
@@ -251,17 +276,15 @@ const IntegrationDetail: React.FC = () => {
                 ) : (
                   <div className="px-4 py-5 sm:p-6 text-center">
                     <p className="text-gray-400 text-sm">
-                      You haven't added any credentials for this integration yet.
+                      You haven't connected any accounts for this integration yet.
                     </p>
-                    {!isAddingCredential && (
-                      <button
-                        onClick={() => setIsAddingCredential(true)}
-                        className="mt-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-dark-700 hover:bg-dark-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-purple transition-colors"
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add your first credential
-                      </button>
-                    )}
+                    <button
+                      onClick={handleAddConnection}
+                      className="mt-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-dark-700 hover:bg-dark-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-purple transition-colors"
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Connect your first account
+                    </button>
                   </div>
                 )}
               </div>

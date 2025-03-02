@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useIntegrationStore } from '../store/integrationStore';
 import { useAuthStore } from '../store/authStore';
-import { Plus, Zap, AlertCircle } from 'lucide-react';
+import { Plus, Zap, AlertCircle, Check, ExternalLink } from 'lucide-react';
 import CredentialForm from '../components/CredentialForm';
 import CredentialItem from '../components/CredentialItem';
 import { getOAuthCredentials } from '../services/oauth';
@@ -14,8 +14,10 @@ const IntegrationDetail: React.FC = () => {
   const { 
     integrations, 
     credentials, 
+    userIntegrations,
     fetchIntegrations, 
-    fetchCredentials, 
+    fetchCredentials,
+    fetchUserIntegrations,
     addCredential, 
     removeCredential, 
     loading 
@@ -25,11 +27,13 @@ const IntegrationDetail: React.FC = () => {
   const [isAddingCredential, setIsAddingCredential] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [isProcessingOAuth, setIsProcessingOAuth] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
   useEffect(() => {
     fetchIntegrations();
     fetchCredentials();
-  }, [fetchIntegrations, fetchCredentials]);
+    fetchUserIntegrations();
+  }, [fetchIntegrations, fetchCredentials, fetchUserIntegrations]);
 
   // Handle OAuth callback
   useEffect(() => {
@@ -67,6 +71,15 @@ const IntegrationDetail: React.FC = () => {
           
           // Refresh the credentials list
           await fetchCredentials();
+          await fetchUserIntegrations();
+          
+          // Show success message
+          setShowSuccessMessage(true);
+          
+          // Hide success message after 5 seconds
+          setTimeout(() => {
+            setShowSuccessMessage(false);
+          }, 5000);
           
         } catch (error) {
           console.error('Error processing OAuth callback:', error);
@@ -78,10 +91,11 @@ const IntegrationDetail: React.FC = () => {
     };
     
     handleOAuthCallback();
-  }, [location.search, id, integrations, fetchCredentials, user]);
+  }, [location.search, id, integrations, fetchCredentials, fetchUserIntegrations, user]);
 
   const integration = integrations.find(i => i.id === id);
   const integrationCredentials = credentials.filter(c => c.integration_id === id);
+  const integrationUserIntegrations = userIntegrations.filter(ui => ui.integration_id === id);
 
   if (!integration && !loading) {
     return (
@@ -162,6 +176,14 @@ const IntegrationDetail: React.FC = () => {
       </header>
       <main>
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+          {/* Success message */}
+          {showSuccessMessage && (
+            <div className="fixed top-20 right-4 bg-green-800 text-white p-4 rounded-md shadow-lg z-50 flex items-center">
+              <Check className="h-5 w-5 mr-2 text-green-400" />
+              <span>Successfully connected to {integration?.name}!</span>
+            </div>
+          )}
+          
           {isProcessingOAuth && (
             <div className="mb-6 px-4 sm:px-0">
               <div className="bg-dark-800 p-4 rounded-lg border border-dark-600 flex items-center">
@@ -176,6 +198,88 @@ const IntegrationDetail: React.FC = () => {
               <div className="bg-red-900/30 p-4 rounded-lg border border-red-500 flex items-center">
                 <AlertCircle className="h-5 w-5 text-red-400 mr-3" />
                 <p className="text-red-300">{oauthError}</p>
+              </div>
+            </div>
+          )}
+          
+          {/* User Integrations Section */}
+          {integrationUserIntegrations.length > 0 && (
+            <div className="mb-6 px-4 sm:px-0">
+              <div className="bg-dark-800 shadow-md overflow-hidden sm:rounded-lg border border-dark-600">
+                <div className="px-4 py-5 sm:px-6">
+                  <h3 className="text-lg leading-6 font-medium text-white">
+                    Your {integration?.name} Connections
+                  </h3>
+                  <p className="mt-1 max-w-2xl text-sm text-gray-400">
+                    Manage your connected {integration?.name} accounts.
+                  </p>
+                </div>
+                <div className="border-t border-dark-600">
+                  <ul className="divide-y divide-dark-600">
+                    {integrationUserIntegrations.map((userIntegration) => (
+                      <li key={userIntegration.id} className="px-4 py-4 sm:px-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10 bg-dark-700 rounded-full flex items-center justify-center">
+                              {renderIntegrationIcon()}
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-glow-purple">
+                                {userIntegration.name}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                Provider: {userIntegration.provider}
+                                {userIntegration.user_data?.user_email && (
+                                  <span className="ml-2">• {userIntegration.user_data.user_email}</span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                Connected: {new Date(userIntegration.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => navigate(`/api-test/${integration?.id}?credential=${userIntegration.id}`)}
+                              className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-5 font-medium rounded-md text-white bg-glow-blue hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-blue transition-colors"
+                            >
+                              <ExternalLink className="h-4 w-4 mr-1" />
+                              Test API
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm('Are you sure you want to remove this connection?')) {
+                                  // Call the API to remove the user integration
+                                  fetch(`/api/user-integrations/${userIntegration.id}?userId=${user?.id}`, {
+                                    method: 'DELETE',
+                                    headers: {
+                                      'Content-Type': 'application/json'
+                                    }
+                                  })
+                                  .then(response => {
+                                    if (response.ok) {
+                                      // Refresh the user integrations list
+                                      fetchUserIntegrations();
+                                    } else {
+                                      throw new Error('Failed to remove connection');
+                                    }
+                                  })
+                                  .catch(error => {
+                                    console.error('Error removing connection:', error);
+                                    alert('Failed to remove connection. Please try again.');
+                                  });
+                                }
+                              }}
+                              className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-5 font-medium rounded-md text-white bg-red-700 hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             </div>
           )}

@@ -1,20 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { useIntegrationStore } from '../store/integrationStore';
-import { Search, Filter, ChevronDown, ChevronUp, Folder, Zap } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, Folder, Zap, Plus } from 'lucide-react';
 import IntegrationCard from '../components/IntegrationCard';
 import { Integration } from '../types';
 
 const Integrations: React.FC = () => {
-  const { integrations, credentials, categories, fetchIntegrations, fetchCredentials, fetchCategories, loading } = useIntegrationStore();
+  const { integrations, userIntegrations, categories, fetchIntegrations, fetchUserIntegrations, fetchCategories, loading } = useIntegrationStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     fetchIntegrations();
-    fetchCredentials();
+    fetchUserIntegrations();
     fetchCategories();
-  }, [fetchIntegrations, fetchCredentials, fetchCategories]);
+  }, [fetchIntegrations, fetchUserIntegrations, fetchCategories]);
 
   const filteredIntegrations = integrations.filter(integration => {
     // Filter by search term
@@ -30,7 +31,7 @@ const Integrations: React.FC = () => {
 
   // Get connected status for each integration
   const getConnectedStatus = (integrationId: string) => {
-    return credentials.some(cred => cred.integration_id === integrationId);
+    return userIntegrations.some(ui => ui.integration_id === integrationId);
   };
 
   // Group integrations by category

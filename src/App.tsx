@@ -15,6 +15,10 @@ import Dashboard from './pages/Dashboard';
 import Integrations from './pages/Integrations';
 import IntegrationDetail from './pages/IntegrationDetail';
 import ApiTest from './pages/ApiTest';
+import Toolkits from './pages/Toolkits';
+import ToolkitDetail from './pages/ToolkitDetail';
+import Tools from './pages/Tools';
+import ToolDetail from './pages/ToolDetail';
 
 function App() {
   const { setUser, setSession, setLoading } = useAuthStore();
@@ -77,6 +81,26 @@ function App() {
           <Route path="api-test/:id" element={
             <AuthGuard>
               <ApiTest />
+            </AuthGuard>
+          } />
+          <Route path="toolkits" element={
+            <AuthGuard>
+              <Toolkits />
+            </AuthGuard>
+          } />
+          <Route path="toolkits/:id" element={
+            <AuthGuard>
+              <ToolkitDetail />
+            </AuthGuard>
+          } />
+          <Route path="tools" element={
+            <AuthGuard>
+              <Tools />
+            </AuthGuard>
+          } />
+          <Route path="tools/:id" element={
+            <AuthGuard>
+              <ToolDetail />
             </AuthGuard>
           } />
           

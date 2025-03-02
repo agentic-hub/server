@@ -319,7 +319,7 @@ const Dashboard: React.FC = () => {
                 ) : credentials.length > 0 ? (
                   <ul className="divide-y divide-dark-600">
                     {credentials.slice(0, 5).map((credential) => {
-                      const integration = integrations.find(i => i.id === credential.integration_id);
+                      const integration = integrations.find(i => i.id === credential.integration_id) || credential.integration;
                       return (
                         <li key={credential.id}>
                           <div className="px-4 py-4 sm:px-6 flex items-center justify-between">
@@ -337,6 +337,14 @@ const Dashboard: React.FC = () => {
                                     <span className="ml-2">
                                       <CategoryBadge categoryName={integration.category.name} size="sm" />
                                     </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {credential.provider && (
+                                    <span className="mr-3">Provider: {credential.provider}</span>
+                                  )}
+                                  {credential.created_at && (
+                                    <span>Added: {new Date(credential.created_at).toLocaleDateString()}</span>
                                   )}
                                 </div>
                               </div>

@@ -39,6 +39,18 @@ const Navbar: React.FC = () => {
                   >
                     Integrations
                   </Link>
+                  <Link
+                    to="/toolkits"
+                    className="border-transparent text-gray-300 hover:text-white hover:border-glow-blue inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
+                  >
+                    Toolkits
+                  </Link>
+                  <Link
+                    to="/tools"
+                    className="border-transparent text-gray-300 hover:text-white hover:border-glow-blue inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
+                  >
+                    Tools
+                  </Link>
                 </>
               )}
             </div>
@@ -104,6 +116,18 @@ const Navbar: React.FC = () => {
                   className="border-transparent text-gray-300 hover:bg-dark-700 hover:border-glow-blue hover:text-white block pl-3 pr-4 py-2 border-l-4 text-base font-medium"
                 >
                   Integrations
+                </Link>
+                <Link
+                  to="/toolkits"
+                  className="border-transparent text-gray-300 hover:bg-dark-700 hover:border-glow-blue hover:text-white block pl-3 pr-4 py-2 border-l-4 text-base font-medium"
+                >
+                  Toolkits
+                </Link>
+                <Link
+                  to="/tools"
+                  className="border-transparent text-gray-300 hover:bg-dark-700 hover:border-glow-blue hover:text-white block pl-3 pr-4 py-2 border-l-4 text-base font-medium"
+                >
+                  Tools
                 </Link>
               </>
             )}

@@ -1,20 +1,82 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Integration } from '../types';
-import { initiateOAuth } from '../services/oauth';
+import { initiateOAuth, getOAuthCredentials } from '../services/oauth';
+import { useAuthStore } from '../store/authStore';
+import { useLocation } from 'react-router-dom';
 
 interface OAuthConnectButtonProps {
   integration: Integration;
   onSuccess: (data: Record<string, string>) => Promise<void>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const OAuthConnectButton: React.FC<OAuthConnectButtonProps> = ({ integration, onSuccess }) => {
-  // Note: The onSuccess prop is not directly used in this component.
-  // It's passed from the parent CredentialForm component and is used in the
-  // IntegrationDetail component after the OAuth flow completes and redirects back.
-  
   const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuthStore();
+  const location = useLocation();
+
+  // Handle OAuth callback
+  useEffect(() => {
+    const handleOAuthCallback = async () => {
+      const searchParams = new URLSearchParams(location.search);
+      const credentialId = searchParams.get('credential_id');
+      const errorParam = searchParams.get('error');
+      
+      // Clear the URL parameters if they exist
+      if (credentialId || errorParam) {
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+      
+      if (errorParam) {
+        setError('Authentication failed. Please try again.');
+        setIsConnecting(false);
+        return;
+      }
+      
+      if (credentialId && user) {
+        try {
+          // Get the OAuth credentials from the server
+          const oauthData = await getOAuthCredentials(credentialId, {
+            save: true,
+            userId: user.id,
+            name: `${integration.name} Connection`
+          });
+          
+          // Convert oauthData to Record<string, string> for the onSuccess callback
+          const formattedData: Record<string, string> = {
+            provider: oauthData.provider,
+            integration_id: oauthData.integration_id,
+            access_token: oauthData.access_token,
+            user_id: oauthData.user_id,
+            token_type: oauthData.token_type || 'Bearer',
+          };
+          
+          // Add optional fields if they exist
+          if (oauthData.refresh_token) formattedData.refresh_token = oauthData.refresh_token;
+          if (oauthData.user_name) formattedData.user_name = oauthData.user_name;
+          if (oauthData.user_email) formattedData.user_email = oauthData.user_email;
+          if (oauthData.expires_at) formattedData.expires_at = oauthData.expires_at.toString();
+          if (oauthData.scope) formattedData.scope = oauthData.scope;
+          if (oauthData.scopes) formattedData.scopes = JSON.stringify(oauthData.scopes);
+          
+          // Call the onSuccess callback with the formatted data
+          await onSuccess(formattedData);
+        } catch (error) {
+          console.error('Error processing OAuth callback:', error);
+          setError('Failed to save connection. Please try again.');
+        } finally {
+          setIsConnecting(false);
+        }
+      }
+    };
+    
+    // Only process the callback if we're in a connecting state
+    if (isConnecting) {
+      handleOAuthCallback();
+    }
+  }, [location.search, integration.name, onSuccess, user, isConnecting]);
 
   // Get the OAuth provider based on integration name
   const getOAuthProvider = (integrationName: string): string => {
@@ -84,7 +146,14 @@ const OAuthConnectButton: React.FC<OAuthConnectButtonProps> = ({ integration, on
   // Handle OAuth connection
   const handleOAuthConnect = async () => {
     try {
+      if (!user) {
+        console.error('User not authenticated');
+        setError('User not authenticated. Please log in and try again.');
+        return;
+      }
+
       setIsConnecting(true);
+      setError(null);
       
       // Get the appropriate OAuth provider
       const provider = getOAuthProvider(integration.name);
@@ -92,13 +161,23 @@ const OAuthConnectButton: React.FC<OAuthConnectButtonProps> = ({ integration, on
       // Get predefined scopes based on integration name
       const predefinedScopes = getPredefinedScopes(integration.name);
       
-      // Initiate the OAuth flow with predefined scopes
-      initiateOAuth(provider, integration.id, predefinedScopes);
+      // Initiate the OAuth flow with predefined scopes and save options
+      initiateOAuth(
+        provider, 
+        integration.id, 
+        predefinedScopes,
+        {
+          userId: user.id,
+          save: true,
+          name: `${integration.name} Connection`
+        }
+      );
       
       // Note: The page will redirect to the OAuth provider,
-      // and the callback will be handled by the server
+      // and the callback will be handled by the server and the useEffect above
     } catch (error) {
       console.error('Error initiating OAuth flow:', error);
+      setError('Failed to initiate authentication. Please try again.');
       setIsConnecting(false);
     }
   };
@@ -167,6 +246,11 @@ const OAuthConnectButton: React.FC<OAuthConnectButtonProps> = ({ integration, on
 
   return (
     <div>
+      {error && (
+        <div className="text-red-500 text-sm mb-2">
+          {error}
+        </div>
+      )}
       <button
         onClick={handleOAuthConnect}
         disabled={isConnecting}
