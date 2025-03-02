@@ -1,0 +1,79 @@
+# Supabase Docker Compose Management
+.PHONY: supabase-setup supabase-start supabase-stop supabase-restart supabase-logs supabase-clean supabase-status supabase-help
+
+# Variables
+SUPABASE_ENV_FILE := .env.supabase
+DOCKER_COMPOSE_FILE := docker-compose.yml
+
+# Setup directories and initial configuration
+supabase-setup:
+	@echo "Setting up Supabase directories..."
+	mkdir -p volumes/db/data volumes/storage volumes/kong
+	@echo "Setup complete. You can now start Supabase with 'make supabase-start'"
+
+# Start Supabase services
+supabase-start:
+	@echo "Starting Supabase services..."
+	export $$(cat $(SUPABASE_ENV_FILE) | xargs) && docker-compose -f $(DOCKER_COMPOSE_FILE) up -d
+	@echo "Supabase is now running!"
+	@echo "Studio UI: http://localhost:3000"
+	@echo "API Endpoint: http://localhost:8000"
+
+# Stop Supabase services
+supabase-stop:
+	@echo "Stopping Supabase services..."
+	export $$(cat $(SUPABASE_ENV_FILE) | xargs) && docker-compose -f $(DOCKER_COMPOSE_FILE) down
+	@echo "Supabase services stopped."
+
+# Restart Supabase services
+supabase-restart:
+	@echo "Restarting Supabase services..."
+	export $$(cat $(SUPABASE_ENV_FILE) | xargs) && docker-compose -f $(DOCKER_COMPOSE_FILE) restart
+	@echo "Supabase services restarted."
+
+# View logs for all or a specific service
+supabase-logs:
+	@if [ "$(service)" = "" ]; then \
+		echo "Showing logs for all services..."; \
+		export $$(cat $(SUPABASE_ENV_FILE) | xargs) && docker-compose -f $(DOCKER_COMPOSE_FILE) logs -f; \
+	else \
+		echo "Showing logs for $(service)..."; \
+		export $$(cat $(SUPABASE_ENV_FILE) | xargs) && docker-compose -f $(DOCKER_COMPOSE_FILE) logs -f $(service); \
+	fi
+
+# Clean up volumes and data
+supabase-clean:
+	@echo "WARNING: This will remove all Supabase data. Are you sure? [y/N]"
+	@read -r response; \
+	if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+		echo "Removing Supabase services and volumes..."; \
+		export $$(cat $(SUPABASE_ENV_FILE) | xargs) && docker-compose -f $(DOCKER_COMPOSE_FILE) down -v; \
+		echo "Removing volume directories..."; \
+		rm -rf volumes/db/data volumes/storage; \
+		echo "Cleanup complete."; \
+	else \
+		echo "Operation cancelled."; \
+	fi
+
+# Check status of Supabase services
+supabase-status:
+	@echo "Checking Supabase services status..."
+	export $$(cat $(SUPABASE_ENV_FILE) | xargs) && docker-compose -f $(DOCKER_COMPOSE_FILE) ps
+
+# Show help information
+supabase-help:
+	@echo "Supabase Docker Compose Management"
+	@echo ""
+	@echo "Available commands:"
+	@echo "  make supabase-setup    - Create necessary directories for Supabase"
+	@echo "  make supabase-start    - Start all Supabase services"
+	@echo "  make supabase-stop     - Stop all Supabase services"
+	@echo "  make supabase-restart  - Restart all Supabase services"
+	@echo "  make supabase-logs     - View logs for all services"
+	@echo "  make supabase-logs service=<service_name> - View logs for a specific service"
+	@echo "  make supabase-clean    - Remove all Supabase data and volumes"
+	@echo "  make supabase-status   - Check status of Supabase services"
+	@echo "  make supabase-help     - Show this help information"
+	@echo ""
+	@echo "Available services for logs:"
+	@echo "  studio, kong, auth, rest, realtime, storage, meta, db" 

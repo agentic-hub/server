@@ -16,8 +16,9 @@ A platform for connecting AI agents with multiple services and automating workfl
 ## Prerequisites
 
 - Node.js 16+ and npm/yarn
-- [Supabase](https://supabase.com) account
+- [Supabase](https://supabase.com) account (or use the local Docker setup)
 - OAuth credentials for services you want to integrate (Google, Slack, GitHub, etc.)
+- Docker and Docker Compose (for local Supabase development)
 
 ## Getting Started
 
@@ -36,6 +37,8 @@ npm install
 
 ### 3. Set Up Supabase
 
+#### Option A: Using Supabase Cloud
+
 1. Create a new project on [Supabase](https://app.supabase.com)
 2. Go to Project Settings > API to get your project URL and anon key
 3. Run the SQL migrations to set up your database schema:
@@ -48,10 +51,21 @@ npm install
    
    # Link your project
    supabase link --project-ref YOUR_PROJECT_REF
-   
-   # Apply migrations
-   supabase db push
    ```
+
+#### Option B: Using Local Docker Setup
+
+1. Set up the local Supabase environment:
+   ```bash
+   # Create necessary directories and prepare environment
+   make supabase-setup
+   
+   # Start Supabase services
+   make supabase-start
+   ```
+
+2. Access Supabase Studio at http://localhost:3000
+3. The API endpoint will be available at http://localhost:8000
 
 ### 4. Configure Environment Variables
 
@@ -151,3 +165,45 @@ The application uses Supabase with the following tables:
 ## License
 
 MIT
+
+## Development
+
+## Local Supabase Development
+
+For local development, you can use the Docker-based Supabase setup. The following Makefile commands are available to manage your local Supabase instance:
+
+### Supabase Docker Commands
+
+| Command | Description |
+|---------|-------------|
+| `make supabase-setup` | Create necessary directories for Supabase Docker |
+| `make supabase-start` | Start all Supabase Docker services |
+| `make supabase-stop` | Stop all Supabase Docker services |
+| `make supabase-restart` | Restart all Supabase Docker services |
+| `make supabase-logs` | View logs for all Supabase services |
+| `make supabase-logs service=db` | View logs for a specific service (e.g., db, studio, auth) |
+| `make supabase-clean` | Remove all Supabase Docker data and volumes |
+| `make supabase-status` | Check status of Supabase Docker services |
+
+### Available Services
+
+The local Supabase setup includes the following services:
+
+- **Supabase Studio**: Web UI for managing your database (http://localhost:3000)
+- **API Gateway**: Kong API Gateway (http://localhost:8000)
+- **PostgreSQL**: Database (localhost:5432)
+- **Auth**: Authentication service
+- **REST**: RESTful API
+- **Realtime**: Real-time subscriptions
+- **Storage**: File storage service
+- **Meta**: PostgreSQL metadata service
+
+### Connecting to the Local Database
+
+You can connect to the local PostgreSQL database using:
+
+- Host: localhost
+- Port: 5432
+- Database: postgres
+- Username: postgres
+- Password: postgres (or as configured in .env.supabase)
