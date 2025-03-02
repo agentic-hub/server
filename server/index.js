@@ -24,6 +24,59 @@ const PORT = process.env.PORT || 3001;
 const oauthStates = new Map();
 const tempCredentials = new Map();
 
+// Define OAuth scopes for different providers
+const OAUTH_SCOPES = {
+  google: {
+    default: ['profile', 'email'],
+    gmail: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly'],
+    sheets: ['https://www.googleapis.com/auth/spreadsheets'],
+    drive: ['https://www.googleapis.com/auth/drive.readonly'],
+    calendar: ['https://www.googleapis.com/auth/calendar'],
+    youtube: ['https://www.googleapis.com/auth/youtube.readonly']
+  },
+  github: ['user:email', 'read:user'],
+  slack: ['users:read', 'chat:write', 'channels:read'],
+  facebook: ['email', 'public_profile']
+};
+
+// Helper functions for OAuth scopes
+function getGoogleScopes(requestedScopes = []) {
+  // Start with default scopes
+  const scopes = [...OAUTH_SCOPES.google.default];
+  
+  // Add requested service scopes
+  if (requestedScopes && requestedScopes.length > 0) {
+    requestedScopes.forEach(service => {
+      if (OAUTH_SCOPES.google[service]) {
+        scopes.push(...OAUTH_SCOPES.google[service]);
+      }
+    });
+  }
+  
+  // Add custom scopes if provided
+  if (requestedScopes && requestedScopes.some(scope => scope.startsWith('https://www.googleapis.com'))) {
+    requestedScopes.forEach(scope => {
+      if (scope.startsWith('https://www.googleapis.com') && !scopes.includes(scope)) {
+        scopes.push(scope);
+      }
+    });
+  }
+  
+  return scopes;
+}
+
+function getProviderScopes(provider, requestedScopes = []) {
+  if (provider === 'google') {
+    return getGoogleScopes(requestedScopes);
+  }
+  
+  // For other providers, use default scopes and add custom ones
+  const defaultScopes = OAUTH_SCOPES[provider] || [];
+  
+  // Combine default with custom scopes
+  return [...new Set([...defaultScopes, ...requestedScopes])];
+}
+
 // Middleware
 app.use(cors({
   origin: 'http://localhost:5173',
@@ -120,7 +173,10 @@ function configureOAuth2Strategy(provider, options) {
 // Initialize OAuth routes
 app.get('/auth/init/:provider', (req, res) => {
   const { provider } = req.params;
-  const { integration_id, redirect_client } = req.query;
+  const { integration_id, redirect_client, scopes } = req.query;
+  
+  // Parse requested scopes if provided
+  const requestedScopes = scopes ? JSON.parse(decodeURIComponent(scopes)) : [];
   
   // Generate a state parameter to prevent CSRF
   const state = uuidv4();
@@ -130,6 +186,7 @@ app.get('/auth/init/:provider', (req, res) => {
     provider,
     integration_id,
     redirect_client,
+    requestedScopes,
     timestamp: Date.now()
   });
   
@@ -149,19 +206,28 @@ app.get('/auth/init/:provider', (req, res) => {
 });
 
 // OAuth routes
-app.get('/auth/google', passport.authenticate('google', { 
-  scope: getGoogleScopes(),
-  accessType: 'offline',
-  prompt: 'consent'
-}));
+app.get('/auth/google', (req, res, next) => {
+  const { state } = req.query;
+  const stateData = oauthStates.get(state);
+  const requestedScopes = stateData?.requestedScopes || [];
+  
+  passport.authenticate('google', { 
+    scope: getGoogleScopes(requestedScopes),
+    accessType: 'offline',
+    prompt: 'consent'
+  })(req, res, next);
+});
 
 app.get('/auth/:provider', (req, res, next) => {
   const { provider } = req.params;
   const { state } = req.query;
   
   if (provider !== 'google' && oauthStates.has(state)) {
+    const stateData = oauthStates.get(state);
+    const requestedScopes = stateData?.requestedScopes || [];
+    
     passport.authenticate(provider, {
-      scope: getProviderScopes(provider),
+      scope: getProviderScopes(provider, requestedScopes),
       state,
       accessType: 'offline',
       prompt: 'consent'
@@ -196,7 +262,7 @@ function handleOAuthCallback(req, res) {
     return res.redirect('http://localhost:5173/integrations?error=invalid_state');
   }
   
-  const { provider, integration_id, redirect_client } = stateData;
+  const { provider, integration_id, redirect_client, requestedScopes } = stateData;
   
   // Store credentials temporarily with a unique ID
   const credentialId = uuidv4();
@@ -204,6 +270,7 @@ function handleOAuthCallback(req, res) {
     provider,
     integration_id,
     user: req.user,
+    requestedScopes,
     timestamp: Date.now()
   };
   
@@ -244,6 +311,7 @@ app.get('/api/credentials/:id', (req, res) => {
     user_email: credentials.user.email || '',
     expires_at: credentials.user.params?.expires_at || null,
     scope: credentials.user.params?.scope || '',
+    scopes: credentials.requestedScopes || [],
     token_type: credentials.user.params?.token_type || 'Bearer'
   };
   
@@ -253,9 +321,73 @@ app.get('/api/credentials/:id', (req, res) => {
   res.json(formattedCredentials);
 });
 
+// Add an endpoint to get available Google scopes
+app.get('/api/google/scopes', (req, res) => {
+  const googleScopes = {
+    default: OAUTH_SCOPES.google.default,
+    services: {
+      gmail: {
+        name: 'Gmail',
+        scopes: OAUTH_SCOPES.google.gmail,
+        description: 'Access to Gmail for sending and reading emails'
+      },
+      sheets: {
+        name: 'Google Sheets',
+        scopes: OAUTH_SCOPES.google.sheets,
+        description: 'Access to Google Sheets for reading and writing data'
+      },
+      drive: {
+        name: 'Google Drive',
+        scopes: OAUTH_SCOPES.google.drive,
+        description: 'Access to Google Drive for file management'
+      },
+      calendar: {
+        name: 'Google Calendar',
+        scopes: OAUTH_SCOPES.google.calendar,
+        description: 'Access to Google Calendar for event management'
+      },
+      youtube: {
+        name: 'YouTube',
+        scopes: OAUTH_SCOPES.google.youtube,
+        description: 'Access to YouTube for video management and analytics'
+      }
+    }
+  };
+  
+  res.json(googleScopes);
+});
+
 // Helper functions
 function getProviderConfig(provider) {
   // In a real app, these would come from your database
   const configs = {
-  }
+    github: {
+      authorizationURL: 'https://github.com/login/oauth/authorize',
+      tokenURL: 'https://github.com/login/oauth/access_token',
+      clientID: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+      profileURL: 'https://api.github.com/user'
+    },
+    slack: {
+      authorizationURL: 'https://slack.com/oauth/v2/authorize',
+      tokenURL: 'https://slack.com/api/oauth.v2.access',
+      clientID: process.env.SLACK_CLIENT_ID,
+      clientSecret: process.env.SLACK_CLIENT_SECRET,
+      profileURL: 'https://slack.com/api/users.identity'
+    },
+    facebook: {
+      authorizationURL: 'https://www.facebook.com/v18.0/dialog/oauth',
+      tokenURL: 'https://graph.facebook.com/v18.0/oauth/access_token',
+      clientID: process.env.FACEBOOK_CLIENT_ID,
+      clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
+      profileURL: 'https://graph.facebook.com/v18.0/me?fields=id,name,email'
+    }
+  };
+  
+  return configs[provider];
 }
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`OAuth server running on http://localhost:${PORT}`);
+});

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useIntegrationStore } from '../store/integrationStore';
 import { Search, Filter, ChevronDown, ChevronUp, Folder, Zap } from 'lucide-react';
 import IntegrationCard from '../components/IntegrationCard';
+import { Integration } from '../types';
 
 const Integrations: React.FC = () => {
   const { integrations, credentials, categories, fetchIntegrations, fetchCredentials, fetchCategories, loading } = useIntegrationStore();
@@ -111,7 +112,15 @@ const Integrations: React.FC = () => {
                       >
                         All Categories
                       </button>
-                      {categories.map((category) => (
+                      {[...categories]
+                        .sort((a, b) => {
+                          if (a.name === 'Social') return -1;
+                          if (b.name === 'Social') return 1;
+                          if (a.name === 'Uncategorized') return 1;
+                          if (b.name === 'Uncategorized') return -1;
+                          return a.name.localeCompare(b.name);
+                        })
+                        .map((category) => (
                         <button
                           key={category.id}
                           onClick={() => setSelectedCategory(category.id)}
@@ -145,7 +154,17 @@ const Integrations: React.FC = () => {
                 ) : filteredIntegrations.length > 0 ? (
                   <div className="px-4 py-5 sm:p-6 space-y-8">
                     {/* Display by category */}
-                    {Object.keys(groupedIntegrations).map((categoryId) => (
+                    {Object.keys(groupedIntegrations)
+                      .sort((a, b) => {
+                        const nameA = getCategoryName(a);
+                        const nameB = getCategoryName(b);
+                        if (nameA === 'Social') return -1;
+                        if (nameB === 'Social') return 1;
+                        if (nameA === 'Uncategorized') return 1;
+                        if (nameB === 'Uncategorized') return -1;
+                        return nameA.localeCompare(nameB);
+                      })
+                      .map((categoryId) => (
                       <div key={categoryId} className="space-y-4">
                         <div className="flex items-center">
                           <Folder className="h-5 w-5 text-glow-blue mr-2" />

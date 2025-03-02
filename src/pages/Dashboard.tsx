@@ -234,7 +234,15 @@ const Dashboard: React.FC = () => {
                   </div>
                 ) : categories.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-                    {categories.map((category) => {
+                    {[...categories]
+                      .sort((a, b) => {
+                        if (a.name === 'Social') return -1;
+                        if (b.name === 'Social') return 1;
+                        if (a.name === 'Uncategorized') return 1;
+                        if (b.name === 'Uncategorized') return -1;
+                        return a.name.localeCompare(b.name);
+                      })
+                      .map((category) => {
                       const categoryIntegrations = integrations.filter(i => i.category_id === category.id);
                       const connectedCount = credentials.filter(c => 
                         categoryIntegrations.some(i => i.id === c.integration_id)

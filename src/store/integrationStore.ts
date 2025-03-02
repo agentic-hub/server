@@ -50,7 +50,16 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
       
       if (error) throw error;
       
-      set({ categories: data as IntegrationCategory[] });
+      // Custom sort: Social at top, Uncategorized at bottom, rest alphabetically
+      const sortedCategories = [...(data as IntegrationCategory[])].sort((a, b) => {
+        if (a.name === 'Social') return -1;
+        if (b.name === 'Social') return 1;
+        if (a.name === 'Uncategorized') return 1;
+        if (b.name === 'Uncategorized') return -1;
+        return a.name.localeCompare(b.name);
+      });
+      
+      set({ categories: sortedCategories });
     } catch (error) {
       console.error('Error fetching integration categories:', error);
     } finally {

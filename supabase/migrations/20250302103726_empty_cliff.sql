@@ -105,7 +105,6 @@ CREATE POLICY "Users can delete their own credentials"
 -- Insert sample integrations
 INSERT INTO integrations (name, description, icon)
 VALUES 
-  ('Google Sheets', 'Connect to Google Sheets to read and write data.', 'sheets'),
   ('Slack', 'Send messages and notifications to Slack channels.', 'slack'),
   ('GitHub', 'Trigger actions based on GitHub events.', 'github'),
   ('Stripe', 'Process payments and manage subscriptions.', 'stripe'),
