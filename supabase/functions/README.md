@@ -1,137 +1,86 @@
-# Supabase Edge Functions for OAuth
+# Supabase Edge Functions
 
-This directory contains Supabase Edge Functions for handling OAuth authentication flows with various providers.
+This directory contains Supabase Edge Functions that replace the Express server previously used for OAuth and API endpoints.
 
 ## Structure
 
-- `oauth/index.ts` - Main OAuth Edge Function that handles:
-  - OAuth initialization
-  - OAuth callbacks
-  - Credential retrieval
-  - Google scopes information
+- `_shared/` - Shared utilities used by multiple edge functions
+  - `cors.ts` - CORS headers for Edge Functions
 
-- `_shared/cors.ts` - Shared CORS headers for use across Edge Functions
+- `oauth/` - OAuth authentication edge function
+  - `index.ts` - Handles OAuth initialization and callback
 
-## Database Tables
-
-The OAuth flow uses two database tables:
-
-1. `oauth_states` - Stores OAuth state parameters to prevent CSRF attacks
-2. `oauth_credentials` - Stores temporary OAuth credentials before they are saved to the user's account
-
-## Environment Variables
-
-The following environment variables need to be set in your Supabase project:
-
-```bash
-# Supabase
-SUPABASE_URL=your-supabase-url
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-
-# OAuth Providers
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GITHUB_CLIENT_ID=your-github-client-id
-GITHUB_CLIENT_SECRET=your-github-client-secret
-SLACK_CLIENT_ID=your-slack-client-id
-SLACK_CLIENT_SECRET=your-slack-client-secret
-FACEBOOK_CLIENT_ID=your-facebook-client-id
-FACEBOOK_CLIENT_SECRET=your-facebook-client-secret
-```
+- `api/` - API endpoints edge function
+  - `index.ts` - Handles API endpoints for credentials, scopes, and user integrations
 
 ## Deployment
 
-To deploy the Edge Functions to your Supabase project:
+To deploy these edge functions to your Supabase project, use the Supabase CLI:
 
 ```bash
-# Install Supabase CLI if you haven't already
-npm install -g supabase
-
-# Login to Supabase
-supabase login
-
-# Link to your Supabase project
-supabase link --project-ref your-project-ref
-
-# Deploy the functions
 supabase functions deploy oauth
+supabase functions deploy api
 ```
 
 ## Local Development
 
-To run the Edge Functions locally:
+To run these edge functions locally, use the Supabase CLI:
 
 ```bash
-# Start the local development server
 supabase start
-
-# Run the functions locally
-supabase functions serve oauth --env-file .env.local
+supabase functions serve
 ```
+
+## Environment Variables
+
+The following environment variables are required:
+
+- `SUPABASE_URL` - Your Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY` - Your Supabase service role key
+- `GITHUB_CLIENT_ID` - GitHub OAuth client ID
+- `GITHUB_CLIENT_SECRET` - GitHub OAuth client secret
+- `SLACK_CLIENT_ID` - Slack OAuth client ID
+- `SLACK_CLIENT_SECRET` - Slack OAuth client secret
+- `FACEBOOK_CLIENT_ID` - Facebook OAuth client ID
+- `FACEBOOK_CLIENT_SECRET` - Facebook OAuth client secret
+- `GOOGLE_CLIENT_ID` - Google OAuth client ID
+- `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
 
 ## API Endpoints
 
-### OAuth Initialization
+### OAuth Endpoints
 
-```
-GET /oauth/init/:provider
-```
+- `POST /oauth/init/:provider` - Initialize OAuth flow for a provider
+  - Query parameters:
+    - `integration_id` - ID of the integration
+    - `redirect_client` - URL to redirect to after OAuth flow
+    - `scopes` - JSON array of requested scopes
+    - `userId` - User ID (optional)
+    - `save` - Whether to save the credentials (optional)
+    - `name` - Name for the integration (optional)
 
-Query parameters:
-- `integration_id` - The ID of the integration
-- `redirect_client` - The URL to redirect to after authentication
-- `scopes` - JSON array of requested scopes
+- `GET /oauth/:provider/callback` - OAuth callback endpoint
 
-### OAuth Callback
+### API Endpoints
 
-```
-GET /oauth/:provider/callback
-```
+- `GET /api/credentials/:id` - Get OAuth credentials by ID
+  - Query parameters:
+    - `userId` - User ID (optional)
+    - `save` - Whether to save the credentials (optional)
+    - `name` - Name for the integration (optional)
 
-Query parameters:
-- `code` - The authorization code from the OAuth provider
-- `state` - The state parameter to prevent CSRF attacks
+- `GET /api/google/scopes` - Get available Google scopes
 
-### Retrieve Credentials
+- `GET /api/provider/:provider/scopes` - Get available scopes for a provider
 
-```
-GET /oauth/credentials?id=:credential_id
-```
+- `GET /api/user-integrations` - Get user integrations
+  - Query parameters:
+    - `userId` - User ID
 
-### Get Google Scopes
+- `DELETE /api/user-integrations/:id` - Delete a user integration
+  - Query parameters:
+    - `userId` - User ID
 
-```
-GET /oauth/google/scopes
-```
-
-## Client Usage
-
-Example of initializing OAuth flow from the client:
-
-```javascript
-// Redirect to OAuth initialization
-const provider = 'google';
-const integrationId = '123';
-const requestedScopes = ['gmail', 'calendar'];
-const redirectClient = 'http://localhost:5173/integrations';
-
-const scopesParam = encodeURIComponent(JSON.stringify(requestedScopes));
-window.location.href = `${SUPABASE_FUNCTIONS_URL}/oauth/init/${provider}?integration_id=${integrationId}&redirect_client=${redirectClient}&scopes=${scopesParam}`;
-```
-
-Example of retrieving credentials after OAuth callback:
-
-```javascript
-// Get credential ID from URL
-const urlParams = new URLSearchParams(window.location.search);
-const credentialId = urlParams.get('credential_id');
-
-if (credentialId) {
-  // Fetch credentials
-  const response = await fetch(`${SUPABASE_FUNCTIONS_URL}/oauth/credentials?id=${credentialId}`);
-  const credentials = await response.json();
-  
-  // Save credentials to database
-  // ...
-}
-``` 
+- `GET /api/user-credentials` - Get user credentials for the dashboard
+  - Query parameters:
+    - `userId` - User ID 

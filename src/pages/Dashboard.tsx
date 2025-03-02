@@ -5,19 +5,31 @@ import { useIntegrationStore } from '../store/integrationStore';
 import { PlusCircle, ArrowRight, Zap, Youtube, Calendar, Mail, HardDrive, Activity, Folder, Instagram, Facebook, Linkedin, Twitter, Pin } from 'lucide-react';
 import { apiService } from '../services/api';
 import CategoryBadge from '../components/CategoryBadge';
+import { Integration } from '../types';
+
+// Define a type for API logs
+interface ApiLog {
+  id: string;
+  request_method: string;
+  request_path: string;
+  response_status: number;
+  duration_ms?: number;
+  created_at: string;
+}
 
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
-  const { integrations, credentials, categories, fetchIntegrations, fetchCredentials, fetchCategories, loading } = useIntegrationStore();
-  const [apiLogs, setApiLogs] = useState<any[]>([]);
+  const { integrations, credentials, userIntegrations, categories, fetchIntegrations, fetchCredentials, fetchUserIntegrations, fetchCategories, loading } = useIntegrationStore();
+  const [apiLogs, setApiLogs] = useState<ApiLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
   useEffect(() => {
     fetchIntegrations();
     fetchCredentials();
+    fetchUserIntegrations();
     fetchCategories();
     fetchApiLogs();
-  }, [fetchIntegrations, fetchCredentials, fetchCategories]);
+  }, [fetchIntegrations, fetchCredentials, fetchUserIntegrations, fetchCategories]);
 
   const fetchApiLogs = async () => {
     try {
@@ -31,12 +43,12 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const connectedIntegrations = credentials.length;
+  const connectedIntegrations = userIntegrations.length;
   const availableIntegrations = integrations.length;
   const categoryCount = categories.length;
 
   // Render the integration icon based on the integration name
-  const renderIntegrationIcon = (integration: any) => {
+  const renderIntegrationIcon = (integration: Integration | undefined | null) => {
     if (!integration) return null;
     
     const lowerName = integration.name?.toLowerCase() || '';
@@ -316,12 +328,12 @@ const Dashboard: React.FC = () => {
                       ))}
                     </div>
                   </div>
-                ) : credentials.length > 0 ? (
+                ) : userIntegrations.length > 0 ? (
                   <ul className="divide-y divide-dark-600">
-                    {credentials.slice(0, 5).map((credential) => {
-                      const integration = integrations.find(i => i.id === credential.integration_id) || credential.integration;
+                    {userIntegrations.slice(0, 5).map((userIntegration) => {
+                      const integration = integrations.find(i => i.id === userIntegration.integration_id) || userIntegration.integration;
                       return (
-                        <li key={credential.id}>
+                        <li key={userIntegration.id}>
                           <div className="px-4 py-4 sm:px-6 flex items-center justify-between">
                             <div className="flex items-center">
                               <div className="flex-shrink-0 h-12 w-12 bg-dark-700 rounded-full flex items-center justify-center shadow-glow-blue-sm">
@@ -329,7 +341,7 @@ const Dashboard: React.FC = () => {
                               </div>
                               <div className="ml-4">
                                 <div className="text-sm font-medium text-glow-purple">
-                                  {credential.name}
+                                  {userIntegration.name}
                                 </div>
                                 <div className="text-sm text-gray-400">
                                   {integration?.name || 'Unknown Integration'}
@@ -340,18 +352,18 @@ const Dashboard: React.FC = () => {
                                   )}
                                 </div>
                                 <div className="text-xs text-gray-500 mt-1">
-                                  {credential.provider && (
-                                    <span className="mr-3">Provider: {credential.provider}</span>
+                                  {userIntegration.provider && (
+                                    <span className="mr-3">Provider: {userIntegration.provider}</span>
                                   )}
-                                  {credential.created_at && (
-                                    <span>Added: {new Date(credential.created_at).toLocaleDateString()}</span>
+                                  {userIntegration.created_at && (
+                                    <span>Added: {new Date(userIntegration.created_at).toLocaleDateString()}</span>
                                   )}
                                 </div>
                               </div>
                             </div>
                             <div className="ml-2 flex-shrink-0 flex">
                               <Link
-                                to={`/api-test/${integration?.id}`}
+                                to={`/api-test/${integration?.id}?credential=${userIntegration.id}`}
                                 className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-5 font-medium rounded-md text-white bg-glow-blue hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-blue transition-colors mr-2"
                               >
                                 Test API

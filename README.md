@@ -8,6 +8,7 @@ A secure platform for managing API integrations with encrypted credential storag
 - Secure credential storage with encryption
 - Multi-party computation (MPC) security for API keys
 - User-friendly interface for managing integrations
+- Serverless architecture using Supabase Edge Functions
 
 ## Security Features
 
@@ -31,16 +32,19 @@ A secure platform for managing API integrations with encrypted credential storag
 
 ## Running the Application
 
-Start both the frontend and OAuth server:
+Start the frontend application:
 
 ```
 npm run start
 ```
 
-Or run them separately:
+For the backend, we use Supabase Edge Functions. To run them locally:
 
-- Frontend: `npm run dev`
-- OAuth Server: `npm run server`
+```
+cd supabase
+supabase start
+supabase functions serve
+```
 
 ## Database Setup
 
@@ -48,32 +52,41 @@ The application uses Supabase for database storage. The schema includes:
 
 - `profiles`: User profiles
 - `integrations`: Available API integrations
-- `credentials`: Encrypted user credentials for integrations
-- `api_connections`: Active connections between users and APIs
-- `api_logs`: Logs of API requests and responses
+- `user_integrations`: User connections to integrations with encrypted credentials
+- `oauth_states`: Temporary storage for OAuth state parameters
+- `oauth_credentials`: Temporary storage for OAuth credentials
 
 ## OAuth Flow
 
 1. User initiates OAuth flow from the UI
-2. Server redirects to the provider's authorization page
+2. Edge Function redirects to the provider's authorization page
 3. Provider redirects back to our callback URL
-4. Server stores credentials temporarily with a unique ID
+4. Edge Function stores credentials temporarily with a unique ID
 5. Client retrieves credentials and saves them to the database with encryption
+
+## Edge Functions
+
+The application uses Supabase Edge Functions for all backend functionality:
+
+- `oauth`: Handles OAuth initialization and callback
+- `api`: Handles API endpoints for credentials, scopes, and user integrations
+
+See the [Edge Functions README](supabase/functions/README.md) for more details.
 
 ## Development
 
 ### Adding a New Integration
 
-1. Add the provider configuration in `server/index.js`
-2. Add OAuth credentials to `.env`
+1. Add the provider configuration in `supabase/functions/oauth/index.ts`
+2. Add OAuth credentials to Supabase environment variables
 3. Add the integration to the database
 
 ### Modifying Encryption
 
-The encryption implementation uses `crypto-js` with AES encryption. To modify:
+The encryption implementation uses database functions with pgcrypto. To modify:
 
-1. Update the encryption/decryption functions in `server/index.js`
-2. Ensure the `ENCRYPTION_KEY` environment variable is set
+1. Update the encryption/decryption functions in the database migrations
+2. Ensure the encryption keys are properly set in Supabase environment variables
 
 ## License
 
@@ -110,6 +123,7 @@ The local Supabase setup includes the following services:
 - **Realtime**: Real-time subscriptions
 - **Storage**: File storage service
 - **Meta**: PostgreSQL metadata service
+- **Edge Functions**: Serverless functions (http://localhost:54321/functions/v1)
 
 ### Connecting to the Local Database
 
@@ -120,3 +134,19 @@ You can connect to the local PostgreSQL database using:
 - Database: postgres
 - Username: postgres
 - Password: postgres (or as configured in .env.supabase)
+
+## Environment Variables
+
+The application requires several environment variables to be set. Copy the `.env.example` file to `.env` and update the values as needed.
+
+```bash
+cp .env.example .env
+```
+
+Key environment variables include:
+
+- `VITE_SUPABASE_URL`: Your Supabase project URL
+- `VITE_SUPABASE_ANON_KEY`: Your Supabase anonymous key
+- `VITE_SUPABASE_FUNCTIONS_URL`: URL for Supabase Edge Functions (default: http://localhost:54321/functions/v1)
+
+For local development with Supabase, the default values in the `.env` file should work out of the box.

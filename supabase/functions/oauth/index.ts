@@ -2,6 +2,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
 import { corsHeaders } from '../_shared/cors.ts';
+import { v4 as uuidv4 } from 'https://esm.sh/uuid@9.0.0';
 
 // Define OAuth scopes for different providers
 const OAUTH_SCOPES = {
@@ -9,9 +10,9 @@ const OAUTH_SCOPES = {
     default: ['profile', 'email'],
     gmail: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly'],
     sheets: ['https://www.googleapis.com/auth/spreadsheets'],
-    drive: ['https://www.googleapis.com/auth/drive.readonly'],
-    calendar: ['https://www.googleapis.com/auth/calendar'],
-    youtube: ['https://www.googleapis.com/auth/youtube.readonly']
+    drive: ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'],
+    calendar: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/calendar.readonly'],
+    youtube: ['https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/youtube.upload']
   },
   github: ['user:email', 'read:user'],
   slack: ['users:read', 'chat:write', 'channels:read'],
@@ -25,6 +26,9 @@ interface StateData {
   integration_id: string;
   redirect_client: string;
   requestedScopes: string[];
+  userId?: string;
+  save?: string;
+  name?: string;
   timestamp: number;
 }
 
@@ -33,6 +37,9 @@ interface CredentialData {
   integration_id: string;
   user: UserProfile;
   requestedScopes: string[];
+  userId?: string;
+  save?: string;
+  name?: string;
   timestamp: number;
 }
 
@@ -130,6 +137,66 @@ const supabaseClient = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
 );
 
+// Helper function to fetch user profile
+async function fetchUserProfile(provider: string, accessToken: string, profileURL: string): Promise<any> {
+  try {
+    const response = await fetch(profileURL, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch user profile: ${response.statusText}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    return null;
+  }
+}
+
+// Helper function to exchange code for tokens
+async function exchangeCodeForTokens(provider: string, code: string, redirectUri: string): Promise<any> {
+  const providerConfig = getProviderConfig(provider);
+  
+  if (!providerConfig) {
+    throw new Error(`Unsupported provider: ${provider}`);
+  }
+  
+  const tokenURL = providerConfig.tokenURL;
+  const clientID = providerConfig.clientID;
+  const clientSecret = providerConfig.clientSecret;
+  
+  const params = new URLSearchParams();
+  params.append('client_id', clientID);
+  params.append('client_secret', clientSecret);
+  params.append('code', code);
+  params.append('redirect_uri', redirectUri);
+  params.append('grant_type', 'authorization_code');
+  
+  try {
+    const response = await fetch(tokenURL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: params.toString()
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to exchange code for tokens: ${response.statusText}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error exchanging code for tokens:', error);
+    throw error;
+  }
+}
+
 // Main handler function for the Edge Function
 serve(async (req: Request) => {
   // Handle CORS for preflight requests
@@ -152,13 +219,13 @@ serve(async (req: Request) => {
         });
       }
 
-      const { integration_id, redirect_client, scopes } = params;
+      const { integration_id, redirect_client, scopes, userId, save, name } = params;
       
       // Parse requested scopes if provided
       const requestedScopes = scopes ? JSON.parse(decodeURIComponent(scopes)) : [];
       
       // Generate a state parameter to prevent CSRF
-      const state = crypto.randomUUID();
+      const state = uuidv4();
       
       // Store state in Supabase
       const stateData: StateData = {
@@ -166,6 +233,9 @@ serve(async (req: Request) => {
         integration_id: integration_id || '',
         redirect_client: redirect_client || 'http://localhost:5173/integrations',
         requestedScopes,
+        userId,
+        save,
+        name,
         timestamp: Date.now()
       };
       
@@ -248,12 +318,11 @@ serve(async (req: Request) => {
         });
       }
       
-      const stateInfo: StateData = stateData.data;
+      const { provider: stateProvider, integration_id, redirect_client, requestedScopes, userId, save, name } = stateData.data as StateData;
       
-      // Get provider config
-      const providerConfig = getProviderConfig(provider);
-      if (!providerConfig) {
-        return new Response(JSON.stringify({ error: `Unsupported provider: ${provider}` }), {
+      // Verify provider matches
+      if (provider !== stateProvider) {
+        return new Response(JSON.stringify({ error: 'Provider mismatch' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
@@ -261,92 +330,99 @@ serve(async (req: Request) => {
       
       // Exchange code for tokens
       const redirectUri = `${url.origin}/oauth/${provider}/callback`;
-      const tokenResponse = await fetch(providerConfig.tokenURL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          client_id: providerConfig.clientID,
-          client_secret: providerConfig.clientSecret,
-          code,
-          redirect_uri: redirectUri,
-          grant_type: 'authorization_code'
-        })
-      });
+      let tokenData;
       
-      const tokenData = await tokenResponse.json();
-      
-      if (!tokenData.access_token) {
-        return new Response(JSON.stringify({ error: 'Failed to obtain access token' }), {
-          status: 400,
+      try {
+        tokenData = await exchangeCodeForTokens(provider, code, redirectUri);
+      } catch (error) {
+        console.error('Error exchanging code for tokens:', error);
+        return new Response(JSON.stringify({ error: 'Failed to exchange code for tokens' }), {
+          status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
       
-      // Fetch user profile if available
-      let profileData = {};
-      if (providerConfig.profileURL) {
-        const profileResponse = await fetch(providerConfig.profileURL, {
-          headers: {
-            'Authorization': `Bearer ${tokenData.access_token}`
-          }
-        });
-        
-        profileData = await profileResponse.json();
+      // Extract tokens
+      const accessToken = tokenData.access_token;
+      const refreshToken = tokenData.refresh_token || null;
+      const expiresIn = tokenData.expires_in || 3600;
+      const tokenType = tokenData.token_type || 'Bearer';
+      const scope = tokenData.scope || '';
+      
+      // Calculate expiration time
+      const expiresAt = Date.now() + expiresIn * 1000;
+      
+      // Fetch user profile
+      const providerConfig = getProviderConfig(provider);
+      let userProfile = null;
+      
+      if (providerConfig && providerConfig.profileURL) {
+        userProfile = await fetchUserProfile(provider, accessToken, providerConfig.profileURL);
       }
       
       // Create user object
-      const user = {
-        id: profileData.id || crypto.randomUUID(),
-        displayName: profileData.name || profileData.display_name || 'User',
-        email: profileData.email || '',
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token || '',
+      const user: UserProfile = {
+        id: userProfile?.id || userProfile?.sub || uuidv4(),
+        displayName: userProfile?.name || userProfile?.display_name || 'User',
+        email: userProfile?.email || '',
+        accessToken,
+        refreshToken,
         params: {
-          expires_at: tokenData.expires_in ? Date.now() + tokenData.expires_in * 1000 : null,
-          scope: tokenData.scope || '',
-          token_type: tokenData.token_type || 'Bearer'
+          expires_at: expiresAt,
+          scope,
+          token_type: tokenType
         }
       };
       
-      // Store credentials temporarily with a unique ID
-      const credentialId = crypto.randomUUID();
-      const credentials: CredentialData = {
+      // Create a unique ID for the credentials
+      const credentialId = uuidv4();
+      
+      // Store credentials in database
+      const credentialData: CredentialData = {
         provider,
-        integration_id: stateInfo.integration_id,
+        integration_id,
         user,
-        requestedScopes: stateInfo.requestedScopes,
+        requestedScopes,
+        userId,
+        save,
+        name,
         timestamp: Date.now()
       };
       
-      // Store credentials in the database
-      const { error: credError } = await supabaseClient
-        .from('oauth_credentials')
-        .insert({
-          id: credentialId,
-          data: credentials,
-          expires_at: new Date(Date.now() + 3600000).toISOString() // 1 hour expiry
-        });
+      // Insert into credentials table using Supabase RPC function
+      const { error: credentialError } = await supabaseClient.rpc('store_oauth_credentials', {
+        p_id: credentialId,
+        p_user_id: userId || user.id,
+        p_integration_id: integration_id,
+        p_provider: provider,
+        p_name: name || `${provider.charAt(0).toUpperCase() + provider.slice(1)} Connection`,
+        p_data: credentialData,
+        p_expires_at: new Date(Date.now() + 3600000) // Expires in 1 hour
+      });
       
-      if (credError) {
-        console.error('Error storing OAuth credentials:', credError);
+      if (credentialError) {
+        console.error('Error storing credentials:', credentialError);
         return new Response(JSON.stringify({ error: 'Failed to store credentials' }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
       
-      // Clean up state
-      await supabaseClient
-        .from('oauth_states')
-        .delete()
-        .eq('state', state);
+      // Build redirect URL with credential ID
+      let redirectUrl = `${redirect_client || 'http://localhost:5173/integrations'}/${integration_id}?credential_id=${credentialId}`;
       
-      // Redirect back to client with credential ID
-      const redirectUrl = `${stateInfo.redirect_client || 'http://localhost:5173/integrations'}/${stateInfo.integration_id}?credential_id=${credentialId}`;
+      // Add additional parameters if they exist
+      if (userId) {
+        redirectUrl += `&userId=${encodeURIComponent(userId)}`;
+      }
+      if (save) {
+        redirectUrl += `&save=${encodeURIComponent(save)}`;
+      }
+      if (name) {
+        redirectUrl += `&name=${encodeURIComponent(name)}`;
+      }
       
+      // Redirect back to client
       return new Response(null, {
         status: 302,
         headers: {
@@ -356,106 +432,13 @@ serve(async (req: Request) => {
       });
     }
     
-    // API to retrieve stored credentials
-    if (path === '/oauth/credentials' && req.method === 'GET') {
-      const { id } = params;
-      
-      if (!id) {
-        return new Response(JSON.stringify({ error: 'Credential ID not provided' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      // Retrieve credentials from database
-      const { data: credData, error: credError } = await supabaseClient
-        .from('oauth_credentials')
-        .select('data')
-        .eq('id', id)
-        .single();
-      
-      if (credError || !credData) {
-        return new Response(JSON.stringify({ error: 'Credentials not found or expired' }), {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      const credentials: CredentialData = credData.data;
-      
-      // Format the credentials for the client
-      const formattedCredentials = {
-        provider: credentials.provider,
-        integration_id: credentials.integration_id,
-        access_token: credentials.user.accessToken,
-        refresh_token: credentials.user.refreshToken || '',
-        user_id: credentials.user.id,
-        user_name: credentials.user.displayName || '',
-        user_email: credentials.user.email || '',
-        expires_at: credentials.user.params?.expires_at || null,
-        scope: credentials.user.params?.scope || '',
-        scopes: credentials.requestedScopes || [],
-        token_type: credentials.user.params?.token_type || 'Bearer'
-      };
-      
-      // Delete the temporary credentials after retrieval
-      await supabaseClient
-        .from('oauth_credentials')
-        .delete()
-        .eq('id', id);
-      
-      return new Response(JSON.stringify(formattedCredentials), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // Add an endpoint to get available Google scopes
-    if (path === '/oauth/google/scopes' && req.method === 'GET') {
-      const googleScopes = {
-        default: OAUTH_SCOPES.google.default,
-        services: {
-          gmail: {
-            name: 'Gmail',
-            scopes: OAUTH_SCOPES.google.gmail,
-            description: 'Access to Gmail for sending and reading emails'
-          },
-          sheets: {
-            name: 'Google Sheets',
-            scopes: OAUTH_SCOPES.google.sheets,
-            description: 'Access to Google Sheets for reading and writing data'
-          },
-          drive: {
-            name: 'Google Drive',
-            scopes: OAUTH_SCOPES.google.drive,
-            description: 'Access to Google Drive for file management'
-          },
-          calendar: {
-            name: 'Google Calendar',
-            scopes: OAUTH_SCOPES.google.calendar,
-            description: 'Access to Google Calendar for event management'
-          },
-          youtube: {
-            name: 'YouTube',
-            scopes: OAUTH_SCOPES.google.youtube,
-            description: 'Access to YouTube for video management and analytics'
-          }
-        }
-      };
-      
-      return new Response(JSON.stringify(googleScopes), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // If no route matches
+    // If no route matches, return 404
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
-    
   } catch (error) {
-    console.error('Error in OAuth Edge Function:', error);
-    
+    console.error('Error in OAuth edge function:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

@@ -1,5 +1,5 @@
-// Base URL for the OAuth server
-const OAUTH_SERVER_URL = 'http://localhost:3001';
+// Replace with Supabase Edge Functions URL
+const SUPABASE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || 'http://localhost:54321/functions/v1';
 
 /**
  * Initiates the OAuth flow for a specific provider
@@ -41,8 +41,8 @@ export const initiateOAuth = (
     }
   }
   
-  // Redirect to the OAuth server to start the flow
-  window.location.href = `${OAUTH_SERVER_URL}/auth/init/${provider}?integration_id=${integrationId}&redirect_client=${encodeURIComponent(redirectClient)}${scopesParam}${additionalParams}`;
+  // Redirect to the Supabase Edge Function to start the OAuth flow
+  window.location.href = `${SUPABASE_FUNCTIONS_URL}/oauth/init/${provider}?integration_id=${integrationId}&redirect_client=${encodeURIComponent(redirectClient)}${scopesParam}${additionalParams}`;
 };
 
 /**
@@ -72,7 +72,7 @@ export const getOAuthCredentials = async (
   token_type?: string;
 }> => {
   try {
-    let url = `${OAUTH_SERVER_URL}/api/credentials/${credentialId}`;
+    let url = `${SUPABASE_FUNCTIONS_URL}/oauth/credentials/${credentialId}`;
     
     // Add query parameters for saving credentials
     if (options) {
@@ -119,7 +119,7 @@ export const getProviderScopes = async (provider: string): Promise<{
   }>;
 }> => {
   try {
-    const response = await fetch(`${OAUTH_SERVER_URL}/api/provider/${provider}/scopes`);
+    const response = await fetch(`${SUPABASE_FUNCTIONS_URL}/api/provider/${provider}/scopes`);
     
     if (!response.ok) {
       throw new Error(`Failed to retrieve scopes for ${provider}`);

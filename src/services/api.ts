@@ -1,6 +1,9 @@
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 
+// Supabase Edge Functions URL
+const SUPABASE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || 'http://localhost:54321/functions/v1';
+
 /**
  * Base API service for making requests to external services
  * through the Supabase backend functions
@@ -168,6 +171,92 @@ export class ApiService {
     if (error) throw error;
     return data;
   }
+
+  /**
+   * Make a request to an external API through the Supabase Edge Function
+   * @param integrationId The integration ID
+   * @param credentialId The credential ID
+   * @param method The HTTP method
+   * @param path The API path
+   * @param body The request body
+   * @param headers Additional headers
+   * @returns The API response
+   */
+  async makeApiRequest(
+    integrationId: string,
+    credentialId: string,
+    method: string,
+    path: string,
+    body: Record<string, unknown> = {},
+    headers: Record<string, string> = {}
+  ) {
+    if (!this.userId) {
+      throw new Error('User not authenticated');
+    }
+    
+    const startTime = Date.now();
+    
+    try {
+      // Prepare the request to the Edge Function
+      const requestOptions: RequestInit = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers
+        },
+        body: JSON.stringify({
+          integration_id: integrationId,
+          credential_id: credentialId,
+          method,
+          path,
+          body,
+          user_id: this.userId
+        })
+      };
+      
+      // Make the request to the Edge Function
+      const response = await fetch(`${SUPABASE_FUNCTIONS_URL}/api/proxy`, requestOptions);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+        throw new Error(errorData.message || `API request failed with status ${response.status}`);
+      }
+      
+      const responseData = await response.json();
+      
+      // Log the API request (this still uses Supabase RPC)
+      await this.logApiRequest({
+        connectionId: responseData.connection_id,
+        integrationId,
+        requestMethod: method,
+        requestPath: path,
+        requestHeaders: headers,
+        requestBody: body || {},
+        responseStatus: response.status,
+        responseHeaders: responseData.headers || {},
+        responseBody: responseData.data || {},
+        durationMs: Date.now() - startTime
+      });
+      
+      return responseData.data;
+    } catch (error: any) {
+      // Log the error
+      await this.logApiRequest({
+        integrationId,
+        requestMethod: method,
+        requestPath: path,
+        requestHeaders: headers,
+        requestBody: body || {},
+        responseStatus: 500,
+        responseHeaders: {},
+        responseBody: {},
+        errorMessage: error.message,
+        durationMs: Date.now() - startTime
+      });
+      
+      throw error;
+    }
+  }
 }
 
 /**
@@ -186,90 +275,36 @@ export class GoogleApiService extends ApiService {
     body: string;
     isHtml?: boolean;
   }) {
-    const startTime = Date.now();
+    // Get the integration ID for Gmail
+    const { data: integrations } = await supabase
+      .from('integrations')
+      .select('id')
+      .ilike('name', '%gmail%')
+      .limit(1);
     
-    try {
-      // In a real implementation, this would call a Supabase Edge Function
-      // that would use the credential to send the email via Gmail API
-      
-      // For now, we'll just log the request and simulate a response
-      const requestBody = {
+    if (!integrations || integrations.length === 0) {
+      throw new Error('Gmail integration not found');
+    }
+    
+    const integrationId = integrations[0].id;
+    
+    // Use the makeApiRequest method to call the Edge Function
+    return this.makeApiRequest(
+      integrationId,
+      credentialId,
+      'POST',
+      '/gmail/v1/users/me/messages/send',
+      {
         to: params.to,
         subject: params.subject,
         body: params.body,
         isHtml: params.isHtml || false
-      };
-      
-      // Get the integration ID for Gmail
-      const { data: integrations } = await supabase
-        .from('integrations')
-        .select('id')
-        .ilike('name', '%gmail%')
-        .limit(1);
-      
-      if (!integrations || integrations.length === 0) {
-        throw new Error('Gmail integration not found');
       }
-      
-      const integrationId = integrations[0].id;
-      
-      // Create a connection if it doesn't exist
-      const connectionId = await this.createConnection(integrationId, credentialId);
-      
-      // Simulate API response
-      const responseBody = {
-        messageId: `msg_${Math.random().toString(36).substring(2, 15)}`,
-        threadId: `thread_${Math.random().toString(36).substring(2, 15)}`,
-        labelIds: ['SENT']
-      };
-      
-      // Log the API request
-      await this.logApiRequest({
-        connectionId,
-        integrationId,
-        requestMethod: 'POST',
-        requestPath: '/gmail/v1/users/me/messages/send',
-        requestHeaders: { 'Content-Type': 'application/json' },
-        requestBody,
-        responseStatus: 200,
-        responseHeaders: { 'Content-Type': 'application/json' },
-        responseBody,
-        durationMs: Date.now() - startTime
-      });
-      
-      return responseBody;
-    } catch (error: any) {
-      // Log the error
-      const { data: integrations } = await supabase
-        .from('integrations')
-        .select('id')
-        .ilike('name', '%gmail%')
-        .limit(1);
-      
-      if (integrations && integrations.length > 0) {
-        await this.logApiRequest({
-          integrationId: integrations[0].id,
-          requestMethod: 'POST',
-          requestPath: '/gmail/v1/users/me/messages/send',
-          requestHeaders: { 'Content-Type': 'application/json' },
-          requestBody: {
-            to: params.to,
-            subject: params.subject
-          },
-          responseStatus: 500,
-          responseHeaders: {},
-          responseBody: {},
-          errorMessage: error.message,
-          durationMs: Date.now() - startTime
-        });
-      }
-      
-      throw error;
-    }
+    );
   }
   
   /**
-   * List videos from a YouTube channel
+   * List YouTube videos
    * @param credentialId The credential ID to use
    * @param params Query parameters
    * @returns The response from the API
@@ -279,123 +314,34 @@ export class GoogleApiService extends ApiService {
     maxResults?: number;
     order?: 'date' | 'rating' | 'viewCount';
   }) {
-    const startTime = Date.now();
+    // Get the integration ID for YouTube
+    const { data: integrations } = await supabase
+      .from('integrations')
+      .select('id')
+      .ilike('name', '%youtube%')
+      .limit(1);
     
-    try {
-      // In a real implementation, this would call a Supabase Edge Function
-      // that would use the credential to fetch videos via YouTube API
-      
-      // For now, we'll just log the request and simulate a response
-      const requestBody = {
+    if (!integrations || integrations.length === 0) {
+      throw new Error('YouTube integration not found');
+    }
+    
+    const integrationId = integrations[0].id;
+    
+    // Use the makeApiRequest method to call the Edge Function
+    return this.makeApiRequest(
+      integrationId,
+      credentialId,
+      'GET',
+      '/youtube/v3/search',
+      {
         part: 'snippet',
+        forMine: true,
+        type: 'video',
         channelId: params.channelId,
         maxResults: params.maxResults || 10,
         order: params.order || 'date'
-      };
-      
-      // Get the integration ID for YouTube
-      const { data: integrations } = await supabase
-        .from('integrations')
-        .select('id')
-        .ilike('name', '%youtube%')
-        .limit(1);
-      
-      if (!integrations || integrations.length === 0) {
-        throw new Error('YouTube integration not found');
       }
-      
-      const integrationId = integrations[0].id;
-      
-      // Create a connection if it doesn't exist
-      const connectionId = await this.createConnection(integrationId, credentialId);
-      
-      // Simulate API response
-      const responseBody = {
-        kind: 'youtube#searchListResponse',
-        etag: 'etag',
-        nextPageToken: 'nextPageToken',
-        pageInfo: {
-          totalResults: 10,
-          resultsPerPage: 10
-        },
-        items: Array.from({ length: 5 }, (_, i) => ({
-          kind: 'youtube#searchResult',
-          etag: `etag_${i}`,
-          id: {
-            kind: 'youtube#video',
-            videoId: `video_${Math.random().toString(36).substring(2, 15)}`
-          },
-          snippet: {
-            publishedAt: new Date().toISOString(),
-            channelId: params.channelId || `channel_${Math.random().toString(36).substring(2, 15)}`,
-            title: `Sample Video ${i + 1}`,
-            description: `This is a sample video description ${i + 1}`,
-            thumbnails: {
-              default: {
-                url: `https://i.ytimg.com/vi/sample_${i}/default.jpg`,
-                width: 120,
-                height: 90
-              },
-              medium: {
-                url: `https://i.ytimg.com/vi/sample_${i}/mqdefault.jpg`,
-                width: 320,
-                height: 180
-              },
-              high: {
-                url: `https://i.ytimg.com/vi/sample_${i}/hqdefault.jpg`,
-                width: 480,
-                height: 360
-              }
-            },
-            channelTitle: 'Sample Channel',
-            liveBroadcastContent: 'none'
-          }
-        }))
-      };
-      
-      // Log the API request
-      await this.logApiRequest({
-        connectionId,
-        integrationId,
-        requestMethod: 'GET',
-        requestPath: '/youtube/v3/search',
-        requestHeaders: { 'Content-Type': 'application/json' },
-        requestBody,
-        responseStatus: 200,
-        responseHeaders: { 'Content-Type': 'application/json' },
-        responseBody,
-        durationMs: Date.now() - startTime
-      });
-      
-      return responseBody;
-    } catch (error: any) {
-      // Log the error
-      const { data: integrations } = await supabase
-        .from('integrations')
-        .select('id')
-        .ilike('name', '%youtube%')
-        .limit(1);
-      
-      if (integrations && integrations.length > 0) {
-        await this.logApiRequest({
-          integrationId: integrations[0].id,
-          requestMethod: 'GET',
-          requestPath: '/youtube/v3/search',
-          requestHeaders: { 'Content-Type': 'application/json' },
-          requestBody: {
-            channelId: params.channelId,
-            maxResults: params.maxResults
-          },
-          responseStatus: 500,
-          responseHeaders: {},
-          responseBody: {},
-          errorMessage: error.message,
-          durationMs: Date.now() - startTime
-        });
-      }
-      
-      throw error;
-    }
+    );
   }
 }
 

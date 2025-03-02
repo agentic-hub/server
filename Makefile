@@ -133,7 +133,7 @@ deploy-functions: ## Deploy Supabase Edge Functions
 		exit 1; \
 	fi
 	supabase functions deploy oauth
-
+	supabase functions deploy api
 # Deploy everything
 deploy: deploy-functions ## Deploy both frontend and Supabase functions
 	@echo "Deployment completed successfully!"
