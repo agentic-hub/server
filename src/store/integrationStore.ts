@@ -15,21 +15,53 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
     
     try {
       set({ loading: true });
+      
+      // Use the new view to get integrations with categories
       const { data, error } = await supabase
-        .from('integrations')
-        .select(`
-          *,
-          category:category_id (
-            id,
-            name,
-            description,
-            icon
-          )
-        `);
+        .from('integrations_with_categories_view')
+        .select('*');
       
-      if (error) throw error;
-      
-      set({ integrations: data as Integration[] });
+      if (error) {
+        console.error('Error fetching from view, falling back to original query:', error);
+        
+        // Fallback to original query if the view doesn't exist
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('integrations')
+          .select(`
+            *,
+            category:category_id (
+              id,
+              name,
+              description,
+              icon,
+              order
+            )
+          `);
+        
+        if (fallbackError) throw fallbackError;
+        
+        // Filter out duplicate integrations by name (keeping the first occurrence)
+        const uniqueIntegrations = fallbackData?.reduce((acc: Integration[], current: Integration) => {
+          const existingIndex = acc.findIndex(item => item.name === current.name);
+          if (existingIndex === -1) {
+            acc.push(current);
+          }
+          return acc;
+        }, []) || [];
+        
+        set({ integrations: uniqueIntegrations as Integration[] });
+      } else {
+        // Filter out duplicate integrations by name (keeping the first occurrence)
+        const uniqueIntegrations = data?.reduce((acc: Integration[], current: Integration) => {
+          const existingIndex = acc.findIndex(item => item.name === current.name);
+          if (existingIndex === -1) {
+            acc.push(current);
+          }
+          return acc;
+        }, []) || [];
+        
+        set({ integrations: uniqueIntegrations as Integration[] });
+      }
     } catch (error) {
       console.error('Error fetching integrations:', error);
     } finally {
@@ -46,20 +78,11 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
       const { data, error } = await supabase
         .from('integration_categories')
         .select('*')
-        .order('name');
+        .order('order', { ascending: true });
       
       if (error) throw error;
       
-      // Custom sort: Social at top, Uncategorized at bottom, rest alphabetically
-      const sortedCategories = [...(data as IntegrationCategory[])].sort((a, b) => {
-        if (a.name === 'Social') return -1;
-        if (b.name === 'Social') return 1;
-        if (a.name === 'Uncategorized') return 1;
-        if (b.name === 'Uncategorized') return -1;
-        return a.name.localeCompare(b.name);
-      });
-      
-      set({ categories: sortedCategories });
+      set({ categories: data as IntegrationCategory[] });
     } catch (error) {
       console.error('Error fetching integration categories:', error);
     } finally {

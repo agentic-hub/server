@@ -8,7 +8,7 @@
 
 # Variables
 NODE_BIN = node_modules/.bin
-REPO_URL = https://github.com/agentic-hub/server.git
+REPO_URL = https://github.com/agentic-hub/agentic-hub.github.io.git
 SUPABASE_FLAGS = --experimental
 
 # Setup environment
@@ -135,7 +135,7 @@ deploy-functions: ## Deploy Supabase Edge Functions
 	supabase functions deploy oauth
 
 # Deploy everything
-deploy: deploy-supabase deploy-functions ## Deploy both frontend and Supabase functions
+deploy: deploy-functions ## Deploy both frontend and Supabase functions
 	@echo "Deployment completed successfully!"
 
 # Clean build artifacts

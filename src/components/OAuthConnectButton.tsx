@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import { Integration } from '../types';
 import { initiateOAuth } from '../services/oauth';
@@ -9,8 +8,12 @@ interface OAuthConnectButtonProps {
   onSuccess: (data: Record<string, string>) => Promise<void>;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const OAuthConnectButton: React.FC<OAuthConnectButtonProps> = ({ integration, onSuccess }) => {
-  const navigate = useNavigate();
+  // Note: The onSuccess prop is not directly used in this component.
+  // It's passed from the parent CredentialForm component and is used in the
+  // IntegrationDetail component after the OAuth flow completes and redirects back.
+  
   const [isConnecting, setIsConnecting] = useState(false);
 
   // Get the OAuth provider based on integration name
@@ -43,6 +46,41 @@ const OAuthConnectButton: React.FC<OAuthConnectButtonProps> = ({ integration, on
     }
   };
 
+  // Get predefined scopes based on integration name
+  const getPredefinedScopes = (integrationName: string): string[] => {
+    const lowerName = integrationName.toLowerCase();
+    
+    if (lowerName.includes('youtube')) {
+      return ['youtube'];
+    } else if (lowerName.includes('gmail')) {
+      return ['gmail'];
+    } else if (lowerName.includes('calendar')) {
+      return ['calendar'];
+    } else if (lowerName.includes('drive')) {
+      return ['drive'];
+    } else if (lowerName.includes('sheets')) {
+      return ['sheets'];
+    } else if (lowerName.includes('slack')) {
+      return ['messages', 'channels'];
+    } else if (lowerName.includes('github')) {
+      return ['repos'];
+    } else if (lowerName.includes('instagram')) {
+      return ['instagram'];
+    } else if (lowerName.includes('facebook')) {
+      return ['pages', 'publishing'];
+    } else if (lowerName.includes('linkedin')) {
+      return [];  // Default scopes will be used
+    } else if (lowerName.includes('twitter')) {
+      return [];  // Default scopes will be used
+    } else if (lowerName.includes('pinterest')) {
+      return [];  // Default scopes will be used
+    } else if (lowerName.includes('google')) {
+      return [];  // Default scopes will be used
+    } else {
+      return [];  // Default scopes will be used
+    }
+  };
+
   // Handle OAuth connection
   const handleOAuthConnect = async () => {
     try {
@@ -51,8 +89,11 @@ const OAuthConnectButton: React.FC<OAuthConnectButtonProps> = ({ integration, on
       // Get the appropriate OAuth provider
       const provider = getOAuthProvider(integration.name);
       
-      // Initiate the OAuth flow
-      initiateOAuth(provider, integration.id);
+      // Get predefined scopes based on integration name
+      const predefinedScopes = getPredefinedScopes(integration.name);
+      
+      // Initiate the OAuth flow with predefined scopes
+      initiateOAuth(provider, integration.id, predefinedScopes);
       
       // Note: The page will redirect to the OAuth provider,
       // and the callback will be handled by the server
@@ -125,23 +166,25 @@ const OAuthConnectButton: React.FC<OAuthConnectButtonProps> = ({ integration, on
   };
 
   return (
-    <button
-      onClick={handleOAuthConnect}
-      disabled={isConnecting}
-      className={`w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-purple transition-all disabled:opacity-50 ${getButtonStyle(integration.name)}`}
-    >
-      {isConnecting ? (
-        <div className="flex items-center">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-          Connecting...
-        </div>
-      ) : (
-        <>
-          <ExternalLink className="h-4 w-4 mr-2" />
-          {getButtonText(integration.name)}
-        </>
-      )}
-    </button>
+    <div>
+      <button
+        onClick={handleOAuthConnect}
+        disabled={isConnecting}
+        className={`w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-glow-purple transition-all disabled:opacity-50 ${getButtonStyle(integration.name)}`}
+      >
+        {isConnecting ? (
+          <div className="flex items-center">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+            Connecting...
+          </div>
+        ) : (
+          <>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            {getButtonText(integration.name)}
+          </>
+        )}
+      </button>
+    </div>
   );
 };
 

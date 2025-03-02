@@ -9,6 +9,8 @@ import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import CryptoJS from 'crypto-js';
+import { createClient } from '@supabase/supabase-js';
 
 // Load environment variables
 dotenv.config();
@@ -18,6 +20,20 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('Missing Supabase environment variables. Please check your .env file.');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+// Encryption key - should be stored securely in environment variables
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-encryption-key-change-in-production';
 
 // In-memory storage for OAuth states and credentials
 // In a production app, you would use a database
@@ -30,13 +46,29 @@ const OAUTH_SCOPES = {
     default: ['profile', 'email'],
     gmail: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly'],
     sheets: ['https://www.googleapis.com/auth/spreadsheets'],
-    drive: ['https://www.googleapis.com/auth/drive.readonly'],
-    calendar: ['https://www.googleapis.com/auth/calendar'],
-    youtube: ['https://www.googleapis.com/auth/youtube.readonly']
+    drive: ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'],
+    calendar: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/calendar.readonly'],
+    youtube: ['https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/youtube.upload']
   },
-  github: ['user:email', 'read:user'],
-  slack: ['users:read', 'chat:write', 'channels:read'],
-  facebook: ['email', 'public_profile']
+  github: {
+    default: ['user:email', 'read:user'],
+    repos: ['repo', 'public_repo'],
+    admin: ['admin:org', 'admin:repo_hook'],
+    notifications: ['notifications', 'read:discussion']
+  },
+  slack: {
+    default: ['identity.basic'],
+    messages: ['chat:write', 'chat:write.public'],
+    channels: ['channels:read', 'channels:history', 'groups:read'],
+    users: ['users:read', 'users:read.email'],
+    files: ['files:read', 'files:write']
+  },
+  facebook: {
+    default: ['email', 'public_profile'],
+    pages: ['pages_show_list', 'pages_read_engagement'],
+    publishing: ['pages_manage_posts', 'pages_manage_engagement'],
+    instagram: ['instagram_basic', 'instagram_content_publish']
+  }
 };
 
 // Helper functions for OAuth scopes
@@ -70,11 +102,27 @@ function getProviderScopes(provider, requestedScopes = []) {
     return getGoogleScopes(requestedScopes);
   }
   
-  // For other providers, use default scopes and add custom ones
-  const defaultScopes = OAUTH_SCOPES[provider] || [];
+  // For other providers with scope categories
+  if (OAUTH_SCOPES[provider]) {
+    const scopes = [...OAUTH_SCOPES[provider].default];
+    
+    // Add requested category scopes
+    if (requestedScopes && requestedScopes.length > 0) {
+      requestedScopes.forEach(category => {
+        if (OAUTH_SCOPES[provider][category]) {
+          scopes.push(...OAUTH_SCOPES[provider][category]);
+        } else if (!scopes.includes(category)) {
+          // If it's not a category but a direct scope, add it
+          scopes.push(category);
+        }
+      });
+    }
+    
+    return [...new Set(scopes)]; // Remove duplicates
+  }
   
-  // Combine default with custom scopes
-  return [...new Set([...defaultScopes, ...requestedScopes])];
+  // For providers without defined scopes, use the requested scopes directly
+  return requestedScopes;
 }
 
 // Middleware
@@ -288,8 +336,54 @@ app.get('/auth/error', (req, res) => {
   res.redirect('http://localhost:5173/integrations?error=auth_failed');
 });
 
+// Helper function to encrypt sensitive data
+function encryptData(data) {
+  return CryptoJS.AES.encrypt(JSON.stringify(data), ENCRYPTION_KEY).toString();
+}
+
+// Helper function to decrypt sensitive data
+function decryptData(encryptedData) {
+  const bytes = CryptoJS.AES.decrypt(encryptedData, ENCRYPTION_KEY);
+  return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+}
+
+// Helper function to save credentials to database
+async function saveCredentialsToDatabase(userId, integrationId, name, data) {
+  try {
+    // Encrypt sensitive data
+    const encryptedData = {
+      ...data,
+      access_token: data.access_token ? encryptData(data.access_token) : null,
+      refresh_token: data.refresh_token ? encryptData(data.refresh_token) : null,
+    };
+
+    // Save to database
+    const { data: savedCredential, error } = await supabase
+      .from('credentials')
+      .insert([
+        {
+          user_id: userId,
+          integration_id: integrationId,
+          name: name || `${data.provider.charAt(0).toUpperCase() + data.provider.slice(1)} Connection`,
+          data: encryptedData
+        }
+      ])
+      .select();
+
+    if (error) {
+      console.error('Error saving credentials to database:', error);
+      throw error;
+    }
+
+    return savedCredential[0];
+  } catch (error) {
+    console.error('Error in saveCredentialsToDatabase:', error);
+    throw error;
+  }
+}
+
 // API to retrieve stored credentials
-app.get('/api/credentials/:id', (req, res) => {
+app.get('/api/credentials/:id', async (req, res) => {
   const { id } = req.params;
   
   if (!tempCredentials.has(id)) {
@@ -314,6 +408,22 @@ app.get('/api/credentials/:id', (req, res) => {
     scopes: credentials.requestedScopes || [],
     token_type: credentials.user.params?.token_type || 'Bearer'
   };
+  
+  try {
+    // Save credentials to database with encryption
+    if (req.query.save === 'true' && req.query.userId) {
+      const credentialName = req.query.name || `${formattedCredentials.provider.charAt(0).toUpperCase() + formattedCredentials.provider.slice(1)} Connection`;
+      await saveCredentialsToDatabase(
+        req.query.userId,
+        formattedCredentials.integration_id,
+        credentialName,
+        formattedCredentials
+      );
+    }
+  } catch (error) {
+    console.error('Error saving credentials:', error);
+    // Continue to return credentials even if saving fails
+  }
   
   // Delete the temporary credentials after retrieval
   tempCredentials.delete(id);
@@ -355,6 +465,111 @@ app.get('/api/google/scopes', (req, res) => {
   };
   
   res.json(googleScopes);
+});
+
+// Add an endpoint to get available scopes for any provider
+app.get('/api/provider/:provider/scopes', (req, res) => {
+  const { provider } = req.params;
+  
+  if (!OAUTH_SCOPES[provider]) {
+    return res.status(404).json({ error: `Provider ${provider} not found` });
+  }
+  
+  const providerScopes = {
+    default: OAUTH_SCOPES[provider].default
+  };
+  
+  // Add categories for each provider
+  if (provider === 'google') {
+    providerScopes.categories = {
+      gmail: {
+        name: 'Gmail',
+        scopes: OAUTH_SCOPES.google.gmail,
+        description: 'Access to Gmail for sending and reading emails'
+      },
+      sheets: {
+        name: 'Google Sheets',
+        scopes: OAUTH_SCOPES.google.sheets,
+        description: 'Access to Google Sheets for reading and writing data'
+      },
+      drive: {
+        name: 'Google Drive',
+        scopes: OAUTH_SCOPES.google.drive,
+        description: 'Access to Google Drive for file management'
+      },
+      calendar: {
+        name: 'Google Calendar',
+        scopes: OAUTH_SCOPES.google.calendar,
+        description: 'Access to Google Calendar for event management'
+      },
+      youtube: {
+        name: 'YouTube',
+        scopes: OAUTH_SCOPES.google.youtube,
+        description: 'Access to YouTube for video management and analytics'
+      }
+    };
+  } else if (provider === 'github') {
+    providerScopes.categories = {
+      repos: {
+        name: 'Repositories',
+        scopes: OAUTH_SCOPES.github.repos,
+        description: 'Access to public and private repositories'
+      },
+      admin: {
+        name: 'Administration',
+        scopes: OAUTH_SCOPES.github.admin,
+        description: 'Administrative access to organizations and webhooks'
+      },
+      notifications: {
+        name: 'Notifications',
+        scopes: OAUTH_SCOPES.github.notifications,
+        description: 'Access to notifications and discussions'
+      }
+    };
+  } else if (provider === 'slack') {
+    providerScopes.categories = {
+      messages: {
+        name: 'Messages',
+        scopes: OAUTH_SCOPES.slack.messages,
+        description: 'Send messages to channels and users'
+      },
+      channels: {
+        name: 'Channels',
+        scopes: OAUTH_SCOPES.slack.channels,
+        description: 'Access to channel information and history'
+      },
+      users: {
+        name: 'Users',
+        scopes: OAUTH_SCOPES.slack.users,
+        description: 'Access to user information and profiles'
+      },
+      files: {
+        name: 'Files',
+        scopes: OAUTH_SCOPES.slack.files,
+        description: 'Access to files and file management'
+      }
+    };
+  } else if (provider === 'facebook') {
+    providerScopes.categories = {
+      pages: {
+        name: 'Pages',
+        scopes: OAUTH_SCOPES.facebook.pages,
+        description: 'Access to Facebook Pages information'
+      },
+      publishing: {
+        name: 'Publishing',
+        scopes: OAUTH_SCOPES.facebook.publishing,
+        description: 'Publish content to Facebook Pages'
+      },
+      instagram: {
+        name: 'Instagram',
+        scopes: OAUTH_SCOPES.facebook.instagram,
+        description: 'Access to connected Instagram accounts'
+      }
+    };
+  }
+  
+  res.json(providerScopes);
 });
 
 // Helper functions

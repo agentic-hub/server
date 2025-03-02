@@ -113,13 +113,7 @@ const Integrations: React.FC = () => {
                         All Categories
                       </button>
                       {[...categories]
-                        .sort((a, b) => {
-                          if (a.name === 'Social') return -1;
-                          if (b.name === 'Social') return 1;
-                          if (a.name === 'Uncategorized') return 1;
-                          if (b.name === 'Uncategorized') return -1;
-                          return a.name.localeCompare(b.name);
-                        })
+                        .sort((a, b) => (a.order || 999) - (b.order || 999))
                         .map((category) => (
                         <button
                           key={category.id}
@@ -156,13 +150,12 @@ const Integrations: React.FC = () => {
                     {/* Display by category */}
                     {Object.keys(groupedIntegrations)
                       .sort((a, b) => {
-                        const nameA = getCategoryName(a);
-                        const nameB = getCategoryName(b);
-                        if (nameA === 'Social') return -1;
-                        if (nameB === 'Social') return 1;
-                        if (nameA === 'Uncategorized') return 1;
-                        if (nameB === 'Uncategorized') return -1;
-                        return nameA.localeCompare(nameB);
+                        // Get the category objects
+                        const categoryA = categories.find(c => c.id === a);
+                        const categoryB = categories.find(c => c.id === b);
+                        
+                        // Sort by order field
+                        return (categoryA?.order || 999) - (categoryB?.order || 999);
                       })
                       .map((categoryId) => (
                       <div key={categoryId} className="space-y-4">

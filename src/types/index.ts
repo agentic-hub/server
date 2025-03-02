@@ -10,6 +10,7 @@ export interface IntegrationCategory {
   name: string;
   description: string;
   icon: string;
+  order?: number;
 }
 
 export interface Integration {

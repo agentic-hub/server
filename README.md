@@ -1,166 +1,79 @@
-# AI Agent MPC Hub
+# Agentic Hub
 
-A platform for connecting AI agents with multiple services and automating workflows through a powerful Multi-Party Computation (MPC) hub. This application allows users to securely connect to various third-party services via OAuth2 and manage their credentials in one place.
+A secure platform for managing API integrations with encrypted credential storage.
 
 ## Features
 
-- User authentication with Supabase
-- OAuth2 integration for connecting to third-party services
-- Secure credential management
-- Multiple service integrations:
-  - Google
-  - Slack
-  - GitHub
-  - More coming soon
+- OAuth integration with multiple providers (Google, GitHub, Slack, etc.)
+- Secure credential storage with encryption
+- Multi-party computation (MPC) security for API keys
+- User-friendly interface for managing integrations
 
-## Prerequisites
+## Security Features
 
-- Node.js 16+ and npm/yarn
-- [Supabase](https://supabase.com) account (or use the local Docker setup)
-- OAuth credentials for services you want to integrate (Google, Slack, GitHub, etc.)
-- Docker and Docker Compose (for local Supabase development)
+- **Encrypted Credentials**: All sensitive data like access tokens and refresh tokens are encrypted before being stored in the database
+- **Environment Variable Security**: Encryption keys and service keys are stored in environment variables
+- **Row-Level Security**: Database tables use Supabase RLS policies to ensure users can only access their own data
 
-## Getting Started
+## Setup
 
-### 1. Clone the Repository
-
-```bash
-git clone git@github.com:agentic-hub/server.git
-cd server
-```
-
-### 2. Install Dependencies
-
-```bash
-npm install
-```
-
-### 3. Set Up Supabase
-
-#### Option A: Using Supabase Cloud
-
-1. Create a new project on [Supabase](https://app.supabase.com)
-2. Go to Project Settings > API to get your project URL and anon key
-3. Run the SQL migrations to set up your database schema:
-   ```bash
-   # Install Supabase CLI if you haven't already
-   npm install -g supabase
-   
-   # Login to Supabase
-   supabase login
-   
-   # Link your project
-   supabase link --project-ref YOUR_PROJECT_REF
+1. Clone the repository
+2. Install dependencies:
    ```
-
-#### Option B: Using Local Docker Setup
-
-1. Set up the local Supabase environment:
-   ```bash
-   # Create necessary directories and prepare environment
-   make supabase-setup
-   
-   # Start Supabase services
-   make supabase-start
+   npm install
    ```
+3. Set up environment variables:
+   - Copy `.env.example` to `.env`
+   - Fill in the required values:
+     - Supabase URL and keys
+     - OAuth provider credentials
+     - Encryption key (generate a secure random string)
 
-2. Access Supabase Studio at http://localhost:3000
-3. The API endpoint will be available at http://localhost:8000
+## Running the Application
 
-### 4. Configure Environment Variables
-
-Copy the example environment file and update it with your credentials:
-
-```bash
-cp .env.example .env
-```
-
-Then edit the `.env` file with your specific configuration values:
+Start both the frontend and OAuth server:
 
 ```
-# Supabase Configuration
-VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
-
-# Server Configuration
-PORT=3001
-SESSION_SECRET=your-session-secret
-
-# OAuth Providers
-# Google
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:3001/auth/google/callback
-
-# GitHub
-GITHUB_CLIENT_ID=your-github-client-id
-GITHUB_CLIENT_SECRET=your-github-client-secret
-GITHUB_CALLBACK_URL=http://localhost:3001/auth/github/callback
-
-# Slack
-SLACK_CLIENT_ID=your-slack-client-id
-SLACK_CLIENT_SECRET=your-slack-client-secret
-SLACK_CALLBACK_URL=http://localhost:3001/auth/slack/callback
+npm run start
 ```
 
-> Note: The `.env` file is included in `.gitignore` to prevent sensitive credentials from being committed to your repository.
+Or run them separately:
 
-### 5. Start the Development Server
+- Frontend: `npm run dev`
+- OAuth Server: `npm run server`
 
-You need to run both the frontend and OAuth server:
+## Database Setup
 
-```bash
-# In one terminal, start the frontend
-npm run dev
+The application uses Supabase for database storage. The schema includes:
 
-# In another terminal, start the OAuth server
-npm run server
-```
+- `profiles`: User profiles
+- `integrations`: Available API integrations
+- `credentials`: Encrypted user credentials for integrations
+- `api_connections`: Active connections between users and APIs
+- `api_logs`: Logs of API requests and responses
 
-The application will be available at:
-- Frontend: http://localhost:5173
-- OAuth Server: http://localhost:3001
+## OAuth Flow
 
-## Setting Up OAuth Providers
+1. User initiates OAuth flow from the UI
+2. Server redirects to the provider's authorization page
+3. Provider redirects back to our callback URL
+4. Server stores credentials temporarily with a unique ID
+5. Client retrieves credentials and saves them to the database with encryption
 
-### Google OAuth
+## Development
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project
-3. Navigate to APIs & Services > Credentials
-4. Create an OAuth 2.0 Client ID
-5. Add the following redirect URI: `http://localhost:3001/auth/google/callback`
-6. Copy the Client ID and Client Secret to your `.env` file
+### Adding a New Integration
 
-### GitHub OAuth
+1. Add the provider configuration in `server/index.js`
+2. Add OAuth credentials to `.env`
+3. Add the integration to the database
 
-1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
-2. Create a new OAuth App
-3. Add the callback URL: `http://localhost:3001/auth/github/callback`
-4. Copy the Client ID and Client Secret to your `.env` file
+### Modifying Encryption
 
-### Slack OAuth
+The encryption implementation uses `crypto-js` with AES encryption. To modify:
 
-1. Go to the [Slack API](https://api.slack.com/apps) page
-2. Create a new app
-3. Add the redirect URL: `http://localhost:3001/auth/slack/callback`
-4. Add necessary scopes (e.g., `users:read`, `chat:write`)
-5. Copy the Client ID and Client Secret to your `.env` file
-
-## Database Schema
-
-The application uses Supabase with the following tables:
-
-- `profiles`: User profiles linked to Supabase Auth
-- `integrations`: Available service integrations
-- `integration_categories`: Categories for organizing integrations
-- `credentials`: User credentials for connected services
-
-## Adding a New OAuth Provider
-
-1. Configure the provider in `server/index.js`
-2. Add the provider credentials to your `.env` file
-3. Update the `getOAuthProvider` function in `OAuthConnectButton.tsx`
+1. Update the encryption/decryption functions in `server/index.js`
+2. Ensure the `ENCRYPTION_KEY` environment variable is set
 
 ## License
 

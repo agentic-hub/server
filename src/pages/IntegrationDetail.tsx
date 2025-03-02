@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useIntegrationStore } from '../store/integrationStore';
+import { useAuthStore } from '../store/authStore';
 import { Plus, Zap, AlertCircle } from 'lucide-react';
 import CredentialForm from '../components/CredentialForm';
 import CredentialItem from '../components/CredentialItem';
-import { getOAuthCredentials, saveOAuthCredentials } from '../services/oauth';
+import { getOAuthCredentials } from '../services/oauth';
 
 const IntegrationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +20,7 @@ const IntegrationDetail: React.FC = () => {
     removeCredential, 
     loading 
   } = useIntegrationStore();
+  const { user } = useAuthStore();
 
   const [isAddingCredential, setIsAddingCredential] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
@@ -47,19 +49,21 @@ const IntegrationDetail: React.FC = () => {
         return;
       }
       
-      if (credentialId) {
+      if (credentialId && user) {
         try {
           setIsProcessingOAuth(true);
-          
-          // Get the OAuth credentials from the server
-          const oauthData = await getOAuthCredentials(credentialId);
           
           // Generate a default name for the credential
           const integration = integrations.find(i => i.id === id);
           const credentialName = `${integration?.name || 'OAuth'} Connection`;
           
-          // Save the credentials to the database
-          await saveOAuthCredentials(credentialName, oauthData);
+          // Get the OAuth credentials from the server and save them directly
+          // The server will handle encryption and database storage
+          await getOAuthCredentials(credentialId, {
+            save: true,
+            userId: user.id,
+            name: credentialName
+          });
           
           // Refresh the credentials list
           await fetchCredentials();
@@ -74,7 +78,7 @@ const IntegrationDetail: React.FC = () => {
     };
     
     handleOAuthCallback();
-  }, [location.search, id, integrations, fetchCredentials]);
+  }, [location.search, id, integrations, fetchCredentials, user]);
 
   const integration = integrations.find(i => i.id === id);
   const integrationCredentials = credentials.filter(c => c.integration_id === id);
