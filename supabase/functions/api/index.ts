@@ -98,7 +98,7 @@ function getProviderScopes(provider, requestedScopes = []) {
 serve(async (req: Request) => {
   // Handle CORS for preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders(req) });
   }
 
   try {
@@ -111,7 +111,7 @@ serve(async (req: Request) => {
       if (req.method !== 'GET') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
 
@@ -126,14 +126,14 @@ serve(async (req: Request) => {
         console.error('Error fetching credentials:', error);
         return new Response(JSON.stringify({ error: 'Failed to fetch credentials' }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
       if (!data) {
         return new Response(JSON.stringify({ error: 'Credentials not found or expired' }), {
           status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -145,7 +145,7 @@ serve(async (req: Request) => {
         });
         return new Response(JSON.stringify({ error: 'Credentials have expired' }), {
           status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -212,7 +212,7 @@ serve(async (req: Request) => {
       
       return new Response(JSON.stringify(formattedCredentials), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
       });
     }
 
@@ -221,7 +221,7 @@ serve(async (req: Request) => {
       if (req.method !== 'GET') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
 
@@ -258,7 +258,7 @@ serve(async (req: Request) => {
       
       return new Response(JSON.stringify(googleScopes), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
       });
     }
 
@@ -267,7 +267,7 @@ serve(async (req: Request) => {
       if (req.method !== 'GET') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
 
@@ -276,7 +276,7 @@ serve(async (req: Request) => {
       if (!OAUTH_SCOPES[provider]) {
         return new Response(JSON.stringify({ error: `Provider ${provider} not found` }), {
           status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -376,7 +376,7 @@ serve(async (req: Request) => {
       
       return new Response(JSON.stringify(providerScopes), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
       });
     }
 
@@ -385,7 +385,7 @@ serve(async (req: Request) => {
       if (req.method !== 'GET') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
 
@@ -394,7 +394,7 @@ serve(async (req: Request) => {
       if (!userId) {
         return new Response(JSON.stringify({ error: 'User ID is required' }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -417,13 +417,13 @@ serve(async (req: Request) => {
         console.error('Error fetching user integrations:', error);
         return new Response(JSON.stringify({ error: 'Failed to fetch user integrations' }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
       return new Response(JSON.stringify(data), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
       });
     }
 
@@ -435,7 +435,7 @@ serve(async (req: Request) => {
       if (!userId) {
         return new Response(JSON.stringify({ error: 'User ID is required' }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -450,13 +450,13 @@ serve(async (req: Request) => {
         console.error('Error deleting user integration:', error);
         return new Response(JSON.stringify({ error: 'Failed to delete user integration' }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
       return new Response(null, {
         status: 204,
-        headers: corsHeaders
+        headers: corsHeaders(req)
       });
     }
 
@@ -465,7 +465,7 @@ serve(async (req: Request) => {
       if (req.method !== 'GET') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
 
@@ -474,7 +474,7 @@ serve(async (req: Request) => {
       if (!userId) {
         return new Response(JSON.stringify({ error: 'User ID is required' }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -503,7 +503,7 @@ serve(async (req: Request) => {
         console.error('Error fetching user credentials:', error);
         return new Response(JSON.stringify({ error: 'Failed to fetch user credentials' }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -521,20 +521,20 @@ serve(async (req: Request) => {
       
       return new Response(JSON.stringify(formattedCredentials), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
       });
     }
 
     // If no route matches, return 404
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
     });
   } catch (error) {
     console.error('Error in API edge function:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
     });
   }
 }); 

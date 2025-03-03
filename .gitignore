@@ -1,3 +1,8 @@
+# Deno specific
+.deno/
+.vscode/
+.idea/
+
 # Environment variables
 .env
 .env.local
@@ -5,6 +10,10 @@
 .env.development.local
 .env.test.local
 .env.production.local
+
+# OS specific
+.DS_Store
+Thumbs.db
 
 # Logs
 logs
@@ -15,8 +24,8 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Dependencies
-node_modules
+# Dependency directories
+node_modules/
 .pnp
 .pnp.js
 

@@ -1,5 +1,5 @@
 // Replace with Supabase Edge Functions URL
-const SUPABASE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || 'http://localhost:54321/functions/v1';
+const SUPABASE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || 'https://uvlkspixjskmgcnkxpjq.supabase.co/functions/v1';
 
 /**
  * Initiates the OAuth flow for a specific provider
@@ -9,7 +9,7 @@ const SUPABASE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || 'h
  * @param options Optional parameters for saving credentials
  * @returns void - redirects the browser to the OAuth provider
  */
-export const initiateOAuth = (
+export const initiateOAuth = async (
   provider: string, 
   integrationId: string, 
   selectedScopes: string[] = [],
@@ -18,31 +18,46 @@ export const initiateOAuth = (
     save?: boolean;
     name?: string;
   }
-): void => {
+): Promise<void> => {
   // Current URL to redirect back to after OAuth
   const redirectClient = window.location.origin + window.location.pathname;
   
-  // Prepare the scopes parameter if scopes are selected
-  const scopesParam = selectedScopes.length > 0 
-    ? `&scopes=${encodeURIComponent(JSON.stringify(selectedScopes))}` 
-    : '';
-    
-  // Prepare additional parameters for saving credentials
-  let additionalParams = '';
-  if (options) {
-    if (options.save) {
-      additionalParams += '&save=true';
-    }
-    if (options.userId) {
-      additionalParams += `&userId=${encodeURIComponent(options.userId)}`;
-    }
-    if (options.name) {
-      additionalParams += `&name=${encodeURIComponent(options.name)}`;
-    }
-  }
+  // Prepare the request payload
+  const payload = {
+    integration_id: integrationId,
+    redirect_client: redirectClient,
+    ...(selectedScopes.length > 0 && { scopes: selectedScopes }),
+    ...(options?.save && { save: true }),
+    ...(options?.userId && { userId: options.userId }),
+    ...(options?.name && { name: options.name })
+  };
   
-  // Redirect to the Supabase Edge Function to start the OAuth flow
-  window.location.href = `${SUPABASE_FUNCTIONS_URL}/oauth/init/${provider}?integration_id=${integrationId}&redirect_client=${encodeURIComponent(redirectClient)}${scopesParam}${additionalParams}`;
+  try {
+    // Make POST request to the OAuth init endpoint
+    const response = await fetch(`${SUPABASE_FUNCTIONS_URL}/oauth/init/${provider}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`OAuth initialization failed: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    // Redirect to the authorization URL returned from the server
+    if (data.authorizationUrl) {
+      window.location.href = data.authorizationUrl;
+    } else {
+      throw new Error('No authorization URL returned from the server');
+    }
+  } catch (error) {
+    console.error('Error initiating OAuth flow:', error);
+    throw error;
+  }
 };
 
 /**
@@ -92,7 +107,9 @@ export const getOAuthCredentials = async (
       }
     }
     
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      credentials: 'include'
+    });
     
     if (!response.ok) {
       throw new Error('Failed to retrieve OAuth credentials');
@@ -119,7 +136,9 @@ export const getProviderScopes = async (provider: string): Promise<{
   }>;
 }> => {
   try {
-    const response = await fetch(`${SUPABASE_FUNCTIONS_URL}/api/provider/${provider}/scopes`);
+    const response = await fetch(`${SUPABASE_FUNCTIONS_URL}/api/provider/${provider}/scopes`, {
+      credentials: 'include'
+    });
     
     if (!response.ok) {
       throw new Error(`Failed to retrieve scopes for ${provider}`);

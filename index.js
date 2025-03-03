@@ -26,7 +26,19 @@ const tempCredentials = new Map();
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:3001',
+      'https://agentic-hub.github.io'
+    ];
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -257,5 +269,47 @@ app.get('/api/credentials/:id', (req, res) => {
 function getProviderConfig(provider) {
   // In a real app, these would come from your database
   const configs = {
-  }
+    github: {
+      authorizationURL: 'https://github.com/login/oauth/authorize',
+      tokenURL: 'https://github.com/login/oauth/access_token',
+      clientID: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+      profileURL: 'https://api.github.com/user'
+    },
+    slack: {
+      authorizationURL: 'https://slack.com/oauth/v2/authorize',
+      tokenURL: 'https://slack.com/api/oauth.v2.access',
+      clientID: process.env.SLACK_CLIENT_ID,
+      clientSecret: process.env.SLACK_CLIENT_SECRET,
+      profileURL: 'https://slack.com/api/users.identity'
+    },
+    facebook: {
+      authorizationURL: 'https://www.facebook.com/v12.0/dialog/oauth',
+      tokenURL: 'https://graph.facebook.com/v12.0/oauth/access_token',
+      clientID: process.env.FACEBOOK_CLIENT_ID,
+      clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
+      profileURL: 'https://graph.facebook.com/me?fields=id,name,email'
+    }
+  };
+  
+  return configs[provider];
 }
+
+function getGoogleScopes() {
+  return ['profile', 'email'];
+}
+
+function getProviderScopes(provider) {
+  const scopes = {
+    github: ['user:email', 'read:user'],
+    slack: ['users:read', 'chat:write', 'channels:read'],
+    facebook: ['email', 'public_profile']
+  };
+  
+  return scopes[provider] || [];
+}
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

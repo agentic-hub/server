@@ -41,7 +41,8 @@ export const callSupabaseFunction = async <T, B = Record<string, unknown>>(
       headers: {
         'Authorization': `Bearer ${session.access_token}`,
         'Content-Type': 'application/json'
-      }
+      },
+      credentials: 'include'
     };
     
     // Add body for POST/PUT requests

@@ -138,7 +138,7 @@ const supabaseClient = createClient(
 );
 
 // Helper function to fetch user profile
-async function fetchUserProfile(provider: string, accessToken: string, profileURL: string): Promise<any> {
+async function fetchUserProfile(provider: string, accessToken: string, profileURL: string): Promise<Record<string, unknown>> {
   try {
     const response = await fetch(profileURL, {
       headers: {
@@ -151,14 +151,14 @@ async function fetchUserProfile(provider: string, accessToken: string, profileUR
     }
     
     return await response.json();
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching user profile:', error);
-    return null;
+    return {};
   }
 }
 
 // Helper function to exchange code for tokens
-async function exchangeCodeForTokens(provider: string, code: string, redirectUri: string): Promise<any> {
+async function exchangeCodeForTokens(provider: string, code: string, redirectUri: string): Promise<Record<string, unknown>> {
   const providerConfig = getProviderConfig(provider);
   
   if (!providerConfig) {
@@ -201,7 +201,7 @@ async function exchangeCodeForTokens(provider: string, code: string, redirectUri
 serve(async (req: Request) => {
   // Handle CORS for preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders(req) });
   }
 
   try {
@@ -215,14 +215,49 @@ serve(async (req: Request) => {
       if (!provider) {
         return new Response(JSON.stringify({ error: 'Provider not specified' }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
 
-      const { integration_id, redirect_client, scopes, userId, save, name } = params;
+      // Get parameters from request body if it's a POST request, otherwise from query params
+      let requestData: Record<string, unknown> = params;
+      
+      if (req.method === 'POST') {
+        try {
+          const contentType = req.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const body = await req.json() as Record<string, unknown>;
+            requestData = { ...requestData, ...body };
+          }
+        } catch (error: unknown) {
+          console.error('Error parsing request body:', error);
+        }
+      }
+      
+      const { integration_id, redirect_client, scopes, userId, save, name } = requestData as {
+        integration_id?: string;
+        redirect_client?: string;
+        scopes?: string | string[];
+        userId?: string;
+        save?: string | boolean;
+        name?: string;
+      };
       
       // Parse requested scopes if provided
-      const requestedScopes = scopes ? JSON.parse(decodeURIComponent(scopes)) : [];
+      let requestedScopes: string[] = [];
+      if (scopes) {
+        // Handle both string and array formats
+        if (typeof scopes === 'string') {
+          try {
+            requestedScopes = JSON.parse(decodeURIComponent(scopes));
+          } catch {
+            // If parsing fails, treat it as a single scope
+            requestedScopes = [scopes];
+          }
+        } else if (Array.isArray(scopes)) {
+          requestedScopes = scopes;
+        }
+      }
       
       // Generate a state parameter to prevent CSRF
       const state = uuidv4();
@@ -234,7 +269,7 @@ serve(async (req: Request) => {
         redirect_client: redirect_client || 'http://localhost:5173/integrations',
         requestedScopes,
         userId,
-        save,
+        save: save ? String(save) : undefined,
         name,
         timestamp: Date.now()
       };
@@ -252,7 +287,7 @@ serve(async (req: Request) => {
         console.error('Error storing OAuth state:', stateError);
         return new Response(JSON.stringify({ error: 'Failed to initialize OAuth flow' }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -261,7 +296,7 @@ serve(async (req: Request) => {
       if (!providerConfig) {
         return new Response(JSON.stringify({ error: `Unsupported provider: ${provider}` }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -282,14 +317,28 @@ serve(async (req: Request) => {
         authUrl.searchParams.append('prompt', 'consent');
       }
       
-      // Redirect to authorization URL
-      return new Response(null, {
-        status: 302,
-        headers: {
-          ...corsHeaders,
-          'Location': authUrl.toString()
-        }
-      });
+      // Return JSON response with redirect URL for API usage
+      if (req.method === 'POST') {
+        return new Response(
+          JSON.stringify({ 
+            redirectUrl: authUrl.toString(),
+            state
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
+          }
+        );
+      } else {
+        // For GET requests, maintain backward compatibility with redirect
+        return new Response(null, {
+          status: 302,
+          headers: {
+            ...corsHeaders(req),
+            'Location': authUrl.toString()
+          }
+        });
+      }
     }
     
     // Handle OAuth callback
@@ -300,7 +349,7 @@ serve(async (req: Request) => {
       if (!code || !state) {
         return new Response(JSON.stringify({ error: 'Missing code or state parameter' }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -314,7 +363,7 @@ serve(async (req: Request) => {
       if (stateError || !stateData) {
         return new Response(JSON.stringify({ error: 'Invalid or expired state' }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -324,7 +373,7 @@ serve(async (req: Request) => {
       if (provider !== stateProvider) {
         return new Response(JSON.stringify({ error: 'Provider mismatch' }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -338,7 +387,7 @@ serve(async (req: Request) => {
         console.error('Error exchanging code for tokens:', error);
         return new Response(JSON.stringify({ error: 'Failed to exchange code for tokens' }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -404,7 +453,7 @@ serve(async (req: Request) => {
         console.error('Error storing credentials:', credentialError);
         return new Response(JSON.stringify({ error: 'Failed to store credentials' }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
         });
       }
       
@@ -426,7 +475,7 @@ serve(async (req: Request) => {
       return new Response(null, {
         status: 302,
         headers: {
-          ...corsHeaders,
+          ...corsHeaders(req),
           'Location': redirectUrl
         }
       });
@@ -435,13 +484,13 @@ serve(async (req: Request) => {
     // If no route matches, return 404
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
     });
   } catch (error) {
     console.error('Error in OAuth edge function:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders(req), 'Content-Type': 'application/json' }
     });
   }
 }); 

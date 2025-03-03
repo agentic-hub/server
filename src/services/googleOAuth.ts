@@ -16,6 +16,7 @@ interface OAuthCredentialResponse {
 
 interface OAuthInitResponse {
   redirectUrl: string;
+  state?: string;
 }
 
 /**
@@ -35,36 +36,40 @@ export const initiateGoogleOAuth = async (
   }
 ): Promise<string> => {
   try {
-    // Prepare query parameters
-    const queryParams: Record<string, string> = {
+    // Prepare request body
+    const requestBody: Record<string, string | string[] | boolean> = {
       integration_id: integrationId,
       redirect_client: window.location.origin + window.location.pathname
     };
     
     // Add scopes if provided
     if (scopes && scopes.length > 0) {
-      queryParams.scopes = JSON.stringify(scopes);
+      requestBody.scopes = scopes;
     }
     
     // Add additional parameters
     if (options) {
       if (options.save) {
-        queryParams.save = 'true';
+        requestBody.save = true;
       }
       if (options.userId) {
-        queryParams.userId = options.userId;
+        requestBody.userId = options.userId;
       }
       if (options.name) {
-        queryParams.name = options.name;
+        requestBody.name = options.name;
       }
     }
     
     // Make the authenticated request
     const response = await postToSupabaseFunction<OAuthInitResponse>(
       '/oauth/init/google', 
-      {}, // Empty body for POST request
-      queryParams
+      requestBody
     );
+    
+    // Store state in localStorage if provided
+    if (response.state) {
+      localStorage.setItem('oauth_state', response.state);
+    }
     
     return response.redirectUrl;
   } catch (error) {
